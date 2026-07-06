@@ -20,7 +20,7 @@ def is_enabled(value, default):
 SESSION = environ.get('SESSION', 'dreamxbotz_search')   # Session name for the bot
 API_ID = int(environ.get('API_ID', '30720676')) # API ID from my.telegram.org
 API_HASH = environ.get('API_HASH', 'a078e3476750afbd6db7d6c5e5e658d9')  # API Hash from my.telegram.org
-BOT_TOKEN = environ.get('BOT_TOKEN', "8786608330:AAHx-xNlkZEMvPSKxNGCZ5XOJi6ER4dafOg")    # Bot token from @BotFather
+BOT_TOKEN = environ.get('BOT_TOKEN', "8898921453:AAEsZ9uIAsyQQBsF5zlBJsMuPI8AWY5siUo")    # Bot token from @BotFather
 
 # ============================
 # Bot Settings Configuration
@@ -43,7 +43,7 @@ FSUB_PICS = (environ.get('FSUB_PICS', 'https://graph.org/file/7478ff3eac37f4329c
 # ============================
 # Admin, Channels & Users Configuration
 # ============================
-ADMINS = [int(admin) if id_pattern.search(admin) else admin for admin in environ.get('ADMINS', '5685076977 5566977478 5478953362').split()] # Replace with the actual admin ID(s) to add
+ADMINS = [int(admin) if id_pattern.search(admin) else admin for admin in environ.get('ADMINS', '5566977478').split()] # Replace with the actual admin ID(s) to add
 CHANNELS = [int(ch) if id_pattern.search(ch) else ch for ch in environ.get('CHANNELS', '-1003450954446').split()]  # Channel id for auto indexing (make sure bot is admin)
 
 LOG_CHANNEL = int(environ.get('LOG_CHANNEL', '-1003444819050'))  # Log channel id (make sure bot is admin)
