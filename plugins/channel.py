@@ -289,7 +289,6 @@ async def _process_with_lock(bot, filename, caption, media_info, base_name, proc
         db.movie_updates = db.db.movie_updates
 
     movie_doc = await db.movie_updates.find_one({"_id": base_name})
-    error_tmdb=False
     file_data = {
         "filename": filename,
         "processed": processed,
@@ -301,14 +300,9 @@ async def _process_with_lock(bot, filename, caption, media_info, base_name, proc
         "season": media_info["season"],
         "episode": media_info["episode"]
     }
-
     if not movie_doc:
-        if TMDB_POSTER:
-            details = await get_movie_detailsx(base_name)
-            if details.get("error") or not details.get("poster_url") and not details.get("backdrop_url"):
-                error_tmdb=True
-                logger.info("TMDB error switching to IMDB")
-                details = await get_movie_details(base_name) or {}
+        details = await get_movie_details(base_name) or {}
+
         else:
             details = await get_movie_details(base_name) or {}
 
@@ -324,13 +318,12 @@ async def _process_with_lock(bot, filename, caption, media_info, base_name, proc
             "poster_url": details.get("backdrop_url") if LANDSCAPE_POSTER and TMDB_POSTER and details.get("backdrop_url") and not error_tmdb else details.get("poster_url"),
             "genres": genres,
             "rating": details.get("rating", "N/A"),
-            "imdb_url": details.get("url", "")if not TMDB_POSTER or error_tmdb else details.get("tmdb_url"),
+            "imdb_url": details.get("url", ""),
             "year": media_info["year"] or details.get("year"),
             "tag": media_info["tag"],
             "ott_platform": media_info["ott_platform"],
             "message_id": None,
-            "is_photo": False,
-            "error_tmdb": error_tmdb,
+            "is_photo": False
             "is_backdrop": details.get("backdrop_url")
         }
         try:
