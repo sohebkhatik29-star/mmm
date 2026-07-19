@@ -298,14 +298,10 @@ async def _process_with_lock(bot, filename, caption, media_info, base_name, proc
         "timestamp": datetime.now(),
         "tag": media_info["tag"],
         "season": media_info["season"],
-        "episode": media_info["episode"]
-    }
-    if not movie_doc:
+        "episode": media_info["episode"
+        
         details = await get_movie_details(base_name) or {}
-
-        else:
-            details = await get_movie_details(base_name) or {}
-
+ 
         raw_genres = details.get("genres", "N/A")
         if isinstance(raw_genres, str):
             genre_list = [g.strip() for g in raw_genres.split(",")]
