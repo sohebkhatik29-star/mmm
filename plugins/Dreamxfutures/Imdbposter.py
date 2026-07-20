@@ -217,4 +217,3 @@ async def get_movie_detailsx(query, id=False, file=None):
     except Exception as e:
         logger.error(f"An error occurred in get_movie_detailsx: {e}")
         return None
-
