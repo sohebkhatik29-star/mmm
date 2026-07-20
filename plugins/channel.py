@@ -528,3 +528,4 @@ def generate_movie_message(movie_doc, base_name):
         rating=movie_doc.get("rating", "N/A"),
         search_link=temp.B_LINK
     )
+
