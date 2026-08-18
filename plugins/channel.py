@@ -15,6 +15,12 @@ from pymongo.errors import PyMongoError, DuplicateKeyError
 from pyrogram.errors import MessageIdInvalid, MessageNotModified, FloodWait
 from typing import Optional, Tuple
 
+# ======== 🆕 Custom Poster Generator ========
+from poster_gen import create_movie_poster
+import tempfile
+import os
+# ===========================================
+
 logger = logging.getLogger(__name__)
 
 # Precomputed sets for faster lookups
@@ -337,6 +343,9 @@ async def _process_with_lock(bot, filename, caption, media_info, base_name, proc
         movie_doc["files"].append(file_data)
         schedule_update(bot, base_name)
 
+# ============================================================
+# 🆕 MODIFIED send_movie_update with Custom Poster Generation
+# ============================================================
 async def send_movie_update(bot, base_name):
     max_retries = 3
     base_delay = 5
@@ -353,34 +362,89 @@ async def send_movie_update(bot, base_name):
                     url=f"https://t.me/{temp.U_NAME}?start=getfile-{base_name.replace(' ', '-')}"
                 )
             ]])
-            size=(2560, 1440) if LANDSCAPE_POSTER and TMDB_POSTER and movie_doc.get("is_backdrop") and not movie_doc.get("error_tmdb") else (853, 1280)
-            if movie_doc.get("poster_url") and not LINK_PREVIEW:
-                resized_poster = await fetch_image(movie_doc["poster_url"], size)
+
+            # ----- GENERATE CUSTOM POSTER -----
+            try:
+                # Extract details from movie_doc
+                title = base_name
+                # Determine subtitle (MOVIE or SERIES)
+                subtitle = "MOVIE" if movie_doc.get("tag") == "#MOVIE" else "SERIES"
+                rating = movie_doc.get("rating", "N/A")
+                year = movie_doc.get("year")
+                # Genres – already comma separated
+                genres_raw = movie_doc.get("genres", "")
+                if genres_raw and genres_raw != "N/A":
+                    genres_list = [g.strip() for g in genres_raw.split(",") if g.strip() and g.strip() != "N/A"]
+                else:
+                    genres_list = []
+                # Description – we don't have plot, skip for now (or set None)
+                description = None
+
+                # Create temporary file
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                    poster_path = tmp.name
+
+                # Generate poster
+                create_movie_poster(
+                    title=title,
+                    subtitle=subtitle,
+                    rating=rating,
+                    year=year,
+                    duration="N/A",   # can be added if we have runtime
+                    genres=genres_list if genres_list else ["ACTION", "DRAMA"],
+                    description=description,
+                    output_path=poster_path,
+                )
+
+                # Send the generated poster
                 msg = await bot.send_photo(
                     chat_id=MOVIE_UPDATE_CHANNEL,
-                    photo=resized_poster,
+                    photo=poster_path,
                     caption=text,
                     reply_markup=buttons,
                     parse_mode=enums.ParseMode.HTML
                 )
                 is_photo = True
-            else:
-                send_params = {
-                    "chat_id": MOVIE_UPDATE_CHANNEL,
-                    "text": text,
-                    "reply_markup": buttons,
-                    "parse_mode": enums.ParseMode.HTML
-                }
-                if movie_doc.get("poster_url") and LINK_PREVIEW:
-                    send_params["invert_media"] = ABOVE_PREVIEW
-                msg = await bot.send_message(**send_params)
-                is_photo = False
+                # Clean up temporary file
+                try:
+                    os.remove(poster_path)
+                except:
+                    pass
 
+            except Exception as e:
+                logger.error(f"Custom poster generation failed: {e}")
+                # Fallback: use old method if poster_url exists
+                if movie_doc.get("poster_url") and not LINK_PREVIEW:
+                    size = (2560, 1440) if LANDSCAPE_POSTER and TMDB_POSTER and movie_doc.get("is_backdrop") and not movie_doc.get("error_tmdb") else (853, 1280)
+                    resized_poster = await fetch_image(movie_doc["poster_url"], size)
+                    msg = await bot.send_photo(
+                        chat_id=MOVIE_UPDATE_CHANNEL,
+                        photo=resized_poster,
+                        caption=text,
+                        reply_markup=buttons,
+                        parse_mode=enums.ParseMode.HTML
+                    )
+                    is_photo = True
+                else:
+                    # Send as text only
+                    send_params = {
+                        "chat_id": MOVIE_UPDATE_CHANNEL,
+                        "text": text,
+                        "reply_markup": buttons,
+                        "parse_mode": enums.ParseMode.HTML
+                    }
+                    if movie_doc.get("poster_url") and LINK_PREVIEW:
+                        send_params["invert_media"] = ABOVE_PREVIEW
+                    msg = await bot.send_message(**send_params)
+                    is_photo = False
+
+            # Update DB with message_id and photo flag
             await db.movie_updates.update_one(
                 {"_id": base_name},
                 {"$set": {"message_id": msg.id, "is_photo": is_photo}}
             )
             return msg
+
         except FloodWait as e:
             wait_time = e.value + 2
             await asyncio.sleep(wait_time)
@@ -527,5 +591,4 @@ def generate_movie_message(movie_doc, base_name):
         episodes=epi_block,
         rating=movie_doc.get("rating", "N/A"),
         search_link=temp.B_LINK
-    )
-
+                             )
