@@ -33,6 +33,7 @@ pyshorteners
 colorama
 fuzzywuzzy
 python-Levenshtein==0.27.1
+SQLAlchemy<2.0.0
 
 # Git-based Packages
 https://github.com/DreamXBotz/cinemagoer/archive/master.zip

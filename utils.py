@@ -31,7 +31,19 @@ BTN_URL_REGEX = re.compile(
 )
 
 
-imdb = Cinemagoer() 
+try:
+    imdb = Cinemagoer(uri='sqlite:///cinemagoer.db') 
+except Exception as e:
+    try:
+        imdb = Cinemagoer()
+    except Exception as err:
+        logger.error(f"Cinemagoer failed to initialize: {err}")
+        class DummyCinemagoer:
+            def search_movie(self, *args, **kwargs): return []
+            def get_movie(self, *args, **kwargs): return {}
+            def update(self, *args, **kwargs): pass
+            def get(self, *args, **kwargs): return None
+        imdb = DummyCinemagoer() 
 BANNED = {}
 SMART_OPEN = '“'
 SMART_CLOSE = '”'
