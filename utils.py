@@ -115,25 +115,80 @@ async def is_req_subscribed(bot, user_id, rqfsub_channels):
 
     return btn
 
+async def get_all_fsub_channels_list(grp_fsub=None):
+    try:
+        dynamic_channels = await db.get_all_fsub_channels()
+        dynamic_ids = [int(ch['channel_id']) for ch in dynamic_channels if ch.get('channel_id')]
+    except Exception as e:
+        logger.error(f"Error fetching dynamic fsub channels: {e}")
+        dynamic_channels = []
+        dynamic_ids = []
+    
+    combined = []
+    if grp_fsub:
+        for x in grp_fsub:
+            try:
+                if x and int(x) != -100:
+                    combined.append(int(x))
+            except Exception:
+                pass
+    if AUTH_CHANNELS:
+        for x in AUTH_CHANNELS:
+            try:
+                if x and int(x) != -100:
+                    combined.append(int(x))
+            except Exception:
+                pass
+    combined.extend(dynamic_ids)
+    unique_ids = list(dict.fromkeys(combined))
+    return unique_ids, dynamic_channels
+
 async def is_subscribed(bot, user_id, fsub_channels):
     btn = []
     
     async def check_channel(channel_id):
         try:
-            # No need to get chat object separately
-            await bot.get_chat_member(channel_id, user_id)
+            ch_id = int(channel_id)
+            if ch_id == -100:
+                return None
+        except Exception:
+            return None
+
+        try:
+            member = await bot.get_chat_member(ch_id, user_id)
+            if member.status in [
+                enums.ChatMemberStatus.MEMBER,
+                enums.ChatMemberStatus.ADMINISTRATOR,
+                enums.ChatMemberStatus.OWNER
+            ]:
+                return None
         except UserNotParticipant:
             try:
-                chat = await bot.get_chat(int(channel_id))
-                invite_link = await bot.create_chat_invite_link(channel_id)
-                return InlineKeyboardButton(f"📢 Join {chat.title}", url=invite_link.invite_link)
+                if ch_id in temp.TEMP_INVITE_LINKS:
+                    invite_link = temp.TEMP_INVITE_LINKS[ch_id]
+                    chat_title = temp.TEMP_INVITE_LINKS.get(f"title_{ch_id}", "Channel")
+                else:
+                    chat = await bot.get_chat(ch_id)
+                    chat_title = chat.title
+                    try:
+                        invite = await bot.create_chat_invite_link(ch_id)
+                        invite_link = invite.invite_link
+                    except Exception:
+                        invite_link = chat.invite_link or (f"https://t.me/{chat.username}" if chat.username else None)
+                    
+                    if invite_link:
+                        temp.TEMP_INVITE_LINKS[ch_id] = invite_link
+                        temp.TEMP_INVITE_LINKS[f"title_{ch_id}"] = chat_title
+
+                if invite_link:
+                    return InlineKeyboardButton(f"📢 Join {chat_title}", url=invite_link)
             except Exception as e:
-                logger.warning(f"Failed to create invite for {channel_id}: {e}")
+                logger.warning(f"Failed to create/get invite for {ch_id}: {e}")
         except Exception as e:
-            logger.exception(f"is_subscribed error for {channel_id}: {e}")
+            logger.exception(f"is_subscribed error for {ch_id}: {e}")
         return None
 
-    tasks = [check_channel(channel_id) for channel_id in fsub_channels]
+    tasks = [check_channel(channel_id) for channel_id in fsub_channels if channel_id]
     results = await asyncio.gather(*tasks)
 
     for button in results:

@@ -20,6 +20,7 @@ class Database:
         self.filename_col = self.db.filename
         self.movie_updates = self.db.movie_updates
         self.connection = self.db.connections
+        self.fsub_channels = self.db.fsub_channels
 
     async def add_name(self, filename):
         if await self.movie_updates.find_one({'_id': filename}):
@@ -419,6 +420,35 @@ class Database:
 
     async def update_movie_update_status(self, bot_id, enable):
         await self.update_bot_setting(bot_id, 'MOVIE_UPDATE_NOTIFICATION', enable)
+
+    async def add_fsub_channel(self, channel_id: int, title: str, invite_link: str = "", channel_type: str = "normal"):
+        await self.fsub_channels.update_one(
+            {'channel_id': int(channel_id)},
+            {'$set': {
+                'channel_id': int(channel_id),
+                'title': title,
+                'invite_link': invite_link,
+                'channel_type': channel_type,
+                'updated_at': datetime.datetime.utcnow()
+            }},
+            upsert=True
+        )
+
+    async def remove_fsub_channel(self, channel_id: int):
+        result = await self.fsub_channels.delete_one({'channel_id': int(channel_id)})
+        return result.deleted_count > 0
+
+    async def get_all_fsub_channels(self):
+        cursor = self.fsub_channels.find({})
+        return [ch async for ch in cursor]
+
+    async def clear_all_fsub_channels(self):
+        result = await self.fsub_channels.delete_many({})
+        return result.deleted_count
+
+    async def get_fsub_channel_ids(self):
+        cursor = self.fsub_channels.find({}, {'channel_id': 1})
+        return [ch['channel_id'] async for ch in cursor]
      
 db = Database(DATABASE_URI, DATABASE_NAME)    
 db2 = Database(DATABASE_URI2, DATABASE_NAME)

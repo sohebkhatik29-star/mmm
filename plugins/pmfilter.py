@@ -1,4 +1,4 @@
-from utils import get_random_mix_id, get_size, is_subscribed, is_req_subscribed, group_setting_buttons, get_poster, get_posterx, temp, get_settings, save_group_settings, get_cap, imdb, is_check_admin, extract_request_content, log_error, clean_filename, generate_season_variations, clean_search_text
+from utils import get_random_mix_id, get_size, is_subscribed, is_req_subscribed, group_setting_buttons, get_poster, get_posterx, temp, get_settings, save_group_settings, get_cap, imdb, is_check_admin, extract_request_content, log_error, clean_filename, generate_season_variations, clean_search_text, get_all_fsub_channels_list
 import tracemalloc
 from fuzzywuzzy import process
 from dreamxbotz.util.file_properties import get_name, get_hash
@@ -947,9 +947,11 @@ async def cb_handler(client: Client, query: CallbackQuery):
             btn = []
             chat = file_id.split("_")[0]
             settings = await get_settings(chat)
-            fsub_channels = list(dict.fromkeys((settings.get('fsub', []) if settings else [])+ AUTH_CHANNELS)) 
+            grp_fsub = settings.get('fsub', []) if settings else []
+            fsub_channels, _ = await get_all_fsub_channels_list(grp_fsub)
             btn += await is_subscribed(client, query.from_user.id, fsub_channels)
-            btn += await is_req_subscribed(client, query.from_user.id, AUTH_REQ_CHANNELS)
+            if AUTH_REQ_CHANNELS:
+                btn += await is_req_subscribed(client, query.from_user.id, AUTH_REQ_CHANNELS)
             if btn:
                 btn.append([InlineKeyboardButton("♻️ ᴛʀʏ ᴀɢᴀɪɴ ♻️", callback_data=f"checksub#{kk}#{file_id}")])
                 try:
@@ -1458,15 +1460,30 @@ async def cb_handler(client: Client, query: CallbackQuery):
         await query.answer(text=script.SINFO, show_alert=True)
 
     elif query.data == "start":
-        buttons = [[
-                    InlineKeyboardButton('🔰 ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ 🔰', url=f'http://telegram.me/{temp.U_NAME}?startgroup=true')
-                ],[
-                    InlineKeyboardButton(' ʜᴇʟᴘ 📢', callback_data='help'),
-                    InlineKeyboardButton(' ᴀʙᴏᴜᴛ 📖', callback_data='about')
-                ],[
-                    InlineKeyboardButton('ᴛᴏᴘ sᴇᴀʀᴄʜɪɴɢ ⭐', callback_data="topsearch"),
-                     InlineKeyboardButton('ᴜᴘɢʀᴀᴅᴇ 🎟', callback_data="premium_info"),
-                ]]
+        buttons = [
+            [
+                InlineKeyboardButton('🔰 ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ 🔰', url=f'http://telegram.me/{temp.U_NAME}?startgroup=true')
+            ],
+            [
+                InlineKeyboardButton(' ʜᴇʟᴘ 📢', callback_data='help'),
+                InlineKeyboardButton(' ᴀʙᴏᴜᴛ 📖', callback_data='about')
+            ],
+            [
+                InlineKeyboardButton('ᴛᴏᴘ sᴇᴀʀᴄʜɪɴɢ ⭐', callback_data="topsearch"),
+                InlineKeyboardButton('ᴜᴘɢʀᴀᴅᴇ 🎟', callback_data="premium_info"),
+            ]
+        ]
+        is_admin = False
+        try:
+            user_id_int = int(query.from_user.id)
+            if user_id_int in ADMINS or str(user_id_int) in [str(a) for a in ADMINS]:
+                is_admin = True
+        except Exception:
+            pass
+        if is_admin:
+            buttons.append([
+                InlineKeyboardButton('⚙️ ᴀᴅᴍɪɴ sᴇᴛᴛɪɴɢs ⚙️', callback_data='admin_settings')
+            ])
         reply_markup = InlineKeyboardMarkup(buttons)
         current_time = datetime.now(pytz.timezone(TIMEZONE))
         curr_time = current_time.hour

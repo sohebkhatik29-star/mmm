@@ -18,7 +18,7 @@ from pyrogram.errors import FloodWait, ChatAdminRequired, UserNotParticipant , C
 from database.ia_filterdb import Media, Media2, get_file_details, unpack_new_file_id, get_bad_files, save_file
 from database.users_chats_db import db
 from info import *
-from utils import get_settings, save_group_settings, is_subscribed, is_req_subscribed, get_size, get_shortlink, is_check_admin, temp, get_readable_time, get_time, generate_settings_text, log_error, clean_filename, get_random_mix_id
+from utils import get_settings, save_group_settings, is_subscribed, is_req_subscribed, get_size, get_shortlink, is_check_admin, temp, get_readable_time, get_time, generate_settings_text, log_error, clean_filename, get_random_mix_id, get_all_fsub_channels_list
 import time
 
 logging.basicConfig(level=logging.ERROR)
@@ -26,6 +26,34 @@ logger = logging.getLogger(__name__)
 
 TIMEZONE = "Asia/Kolkata"
 BATCH_FILES = {}
+
+def get_start_buttons(user_id):
+    is_admin = False
+    try:
+        user_id_int = int(user_id)
+        if user_id_int in ADMINS or str(user_id_int) in [str(a) for a in ADMINS]:
+            is_admin = True
+    except Exception:
+        pass
+
+    buttons = [
+        [
+            InlineKeyboardButton('🔰 ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ 🔰', url=f'http://t.me/{temp.U_NAME}?startgroup=true')
+        ],
+        [
+            InlineKeyboardButton(' ʜᴇʟᴘ 📢', callback_data='help'),
+            InlineKeyboardButton(' ᴀʙᴏᴜᴛ 📖', callback_data='about')
+        ],
+        [
+            InlineKeyboardButton('ᴛᴏᴘ sᴇᴀʀᴄʜɪɴɢ ⭐', callback_data="topsearch"),
+            InlineKeyboardButton('ᴜᴘɢʀᴀᴅᴇ 🎟', callback_data="premium_info"),
+        ]
+    ]
+    if is_admin:
+        buttons.append([
+            InlineKeyboardButton('⚙️ ᴀᴅᴍɪɴ sᴇᴛᴛɪɴɢs ⚙️', callback_data='admin_settings')
+        ])
+    return buttons
 
 @Client.on_message(filters.command("start") & filters.incoming)
 async def start(client, message):
@@ -105,15 +133,7 @@ async def start(client, message):
             await db.add_user(message.from_user.id, message.from_user.first_name)
             await client.send_message(LOG_CHANNEL, script.LOG_TEXT_P.format(message.from_user.id, message.from_user.mention))
         if len(message.command) != 2:
-            buttons = [[
-                        InlineKeyboardButton('🔰 ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ 🔰', url=f'http://t.me/{temp.U_NAME}?startgroup=true')
-                    ],[
-                        InlineKeyboardButton(' ʜᴇʟᴘ 📢', callback_data='help'),
-                        InlineKeyboardButton(' ᴀʙᴏᴜᴛ 📖', callback_data='about')
-                    ],[
-                        InlineKeyboardButton('ᴛᴏᴘ sᴇᴀʀᴄʜɪɴɢ ⭐', callback_data="topsearch"),
-                        InlineKeyboardButton('ᴜᴘɢʀᴀᴅᴇ 🎟', callback_data="premium_info"),
-                    ]]
+            buttons = get_start_buttons(message.from_user.id)
             reply_markup = InlineKeyboardMarkup(buttons)
             current_time = datetime.now(pytz.timezone(TIMEZONE))
             curr_time = current_time.hour        
@@ -138,15 +158,7 @@ async def start(client, message):
             return
 
         if len(message.command) == 2 and message.command[1] in ["subscribe", "error", "okay", "help"]:
-            buttons = [[
-                        InlineKeyboardButton('🔰 ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ 🔰', url=f'http://t.me/{temp.U_NAME}?startgroup=true')
-                    ],[
-                        InlineKeyboardButton(' ʜᴇʟᴘ 📢', callback_data='help'),
-                        InlineKeyboardButton(' ᴀʙᴏᴜᴛ 📖', callback_data='about')
-                    ],[
-                        InlineKeyboardButton('ᴛᴏᴘ sᴇᴀʀᴄʜɪɴɢ ⭐', callback_data="topsearch"),
-                        InlineKeyboardButton('ᴜᴘɢʀᴀᴅᴇ 🎟', callback_data="premium_info"),
-                    ]]
+            buttons = get_start_buttons(message.from_user.id)
             reply_markup = InlineKeyboardMarkup(buttons)
             current_time = datetime.now(pytz.timezone(TIMEZONE))
             curr_time = current_time.hour        
@@ -249,7 +261,8 @@ async def start(client, message):
                 btn = []
                 chat = grp_id
                 settings      = await get_settings(chat)
-                fsub_channels = list(dict.fromkeys((settings.get('fsub', []) if settings else [])+ AUTH_CHANNELS)) 
+                grp_fsub      = settings.get('fsub', []) if settings else []
+                fsub_channels, _ = await get_all_fsub_channels_list(grp_fsub) 
 
                 if fsub_channels:
                     btn += await is_subscribed(client, message.from_user.id, fsub_channels)
