@@ -16,7 +16,10 @@ from pyrogram.errors import MessageIdInvalid, MessageNotModified, FloodWait
 from typing import Optional, Tuple
 
 # ======== 🆕 Custom Poster Generator ========
-from poster_gen import create_movie_poster
+try:
+    from poster_gen import create_movie_poster
+except ImportError:
+    create_movie_poster = None
 import tempfile
 import os
 # ===========================================
@@ -385,6 +388,8 @@ async def send_movie_update(bot, base_name):
                     poster_path = tmp.name
 
                 # Generate poster
+                if not create_movie_poster:
+                    raise ImportError("poster_gen module not installed or available")
                 create_movie_poster(
                     title=title,
                     subtitle=subtitle,
