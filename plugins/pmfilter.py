@@ -376,11 +376,17 @@ async def advantage_spoll_choker(bot, query):
                 await bot.send_message(chat_id=BIN_CHANNEL, text=script.NORSLTS.format(reqstr.id, reqstr.mention, movie))
             except Exception as e:
                 print(f"Error In Spol - {e}   Make Sure Bot Admin BIN CHANNEL")
-        btn = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("🔰Cʟɪᴄᴋ ʜᴇʀᴇ & ʀᴇǫᴜᴇsᴛ ᴛᴏ ᴀᴅᴍɪɴ🔰", url=OWNER_LNK)]])
-        k = await query.message.edit(script.MVE_NT_FND, reply_markup=btn)
-        await asyncio.sleep(10)
-        await k.delete()
+        google = quote_plus(movie)
+        btn = InlineKeyboardMarkup([
+            [InlineKeyboardButton("👑 ʀᴇǫᴜᴇsᴛ ᴛᴏ ᴏᴡɴᴇʀ 👑", url=OWNER_LNK)],
+            [InlineKeyboardButton("🔍 ᴄʜᴇᴄᴋ sᴘᴇʟʟɪɴɢ ᴏɴ ɢᴏᴏɢʟᴇ 🔍", url=f"https://www.google.com/search?q={google}")]
+        ])
+        k = await query.message.edit_text(script.I_CUDNT.format(query.from_user.mention), reply_markup=btn)
+        await asyncio.sleep(60)
+        try:
+            await k.delete()
+        except Exception:
+            pass
 
 # Qualities
 @Client.on_callback_query(filters.regex(r"^qualities#"))
@@ -1799,26 +1805,21 @@ async def auto_filter(client, msg, spoll=False):
 
                 settings = await get_settings(message.chat.id)
                 if not files:
+                    try:
+                        if m:
+                            await m.delete()
+                    except Exception:
+                        pass
                     if settings.get("spell_check"):
-                        ai_sts = await m.edit('🤖 ᴘʟᴇᴀꜱᴇ ᴡᴀɪᴛ, ᴀɪ ɪꜱ ᴄʜᴇᴄᴋɪɴɢ ʏᴏᴜʀ ꜱᴘᴇʟʟɪɴɢ...')
-                        is_misspelled = await ai_spell_check(chat_id=message.chat.id, wrong_name=search)
-
-                        if is_misspelled:
-                            await ai_sts.edit(f'✅ Aɪ Sᴜɢɢᴇsᴛᴇᴅ: <code>{is_misspelled}</code>\n🔍 Searching for it...')
-                            message.text = is_misspelled
-                            await ai_sts.delete()
-                            return await auto_filter(client, message)
-                        await ai_sts.delete()
-                        result = await advantage_spell_chok(client, message)
-                        return result
-                    else:
                         try:
-                            if m:
-                                await m.delete()
-                        except Exception:
-                            pass
-                        result = await advantage_spell_chok(client, message)
-                        return result
+                            is_misspelled = await ai_spell_check(chat_id=message.chat.id, wrong_name=search)
+                            if is_misspelled:
+                                message.text = is_misspelled
+                                return await auto_filter(client, message)
+                        except Exception as e:
+                            logger.exception("ai_spell_check error: %s", e)
+                    result = await advantage_spell_chok(client, message)
+                    return result
             else:
                 return
         else:
@@ -2044,59 +2045,43 @@ async def ai_spell_check(chat_id, wrong_name):
 
 async def advantage_spell_chok(client, message):
     mv_id = message.id
-    search = message.text
+    search = message.text or ""
     chat_id = message.chat.id
-    settings = await get_settings(chat_id)
-    query = re.sub(
-        r"\b(pl(i|e)*?(s|z+|ease|se|ese|(e+)s(e)?)|((send|snd|giv(e)?|gib)(\sme)?)|movie(s)?|new|latest|br((o|u)h?)*|^h(e|a)?(l)*(o)*|mal(ayalam)?|t(h)?amil|file|that|find|und(o)*|kit(t(i|y)?)?o(w)?|thar(u)?(o)*w?|kittum(o)*|aya(k)*(um(o)*)?|full\smovie|any(one)|with\ssubtitle(s)?)",
-        "", message.text, flags=re.IGNORECASE)
-    query = query.strip() + " movie"
+    google = quote_plus(search)
+    user = message.from_user.id if message.from_user else 0
+
+    movies = None
     try:
         movies = await get_poster(search, bulk=True)
     except Exception as e:
-        logger.exception("get_poster failed for query=%s: %s", query, e)
-        try:
-            button = [[InlineKeyboardButton("👑 ʀᴇǫᴜᴇsᴛ ᴛᴏ ᴏᴡɴᴇʀ 👑", url=OWNER_LNK)]]
-            k = await message.reply(script.I_CUDNT.format(message.from_user.mention), reply_markup=InlineKeyboardMarkup(button))
-            await asyncio.sleep(60)
-            try:
-                await k.delete()
-            except Exception:
-                pass
-        except Exception:
-            pass
-        try:
-            await message.delete()
-        except Exception:
-            pass
-        return
-    if not movies:
-        google = quote_plus(search)
-        button = [
-            [InlineKeyboardButton("👑 ʀᴇǫᴜᴇsᴛ ᴛᴏ ᴏᴡɴᴇʀ 👑", url=OWNER_LNK)],
-            [InlineKeyboardButton("🔍 ᴄʜᴇᴄᴋ sᴘᴇʟʟɪɴɢ ᴏɴ ɢᴏᴏɢʟᴇ 🔍", url=f"https://www.google.com/search?q={google}")]
-        ]
-        k = await message.reply_text(text=script.I_CUDNT.format(message.from_user.mention), reply_markup=InlineKeyboardMarkup(button))
-        await asyncio.sleep(60)
-        await k.delete()
-        try:
-            await message.delete()
-        except:
-            pass
-        return
-    user = message.from_user.id if message.from_user else 0
-    buttons = [
-        [InlineKeyboardButton(text=movie.get('title'), callback_data=f"spol#{movie.movieID}#{user}")
-         ] for movie in movies]
+        logger.exception("get_poster failed for query=%s: %s", search, e)
 
-    buttons.append([InlineKeyboardButton("👑 ʀᴇǫᴜᴇsᴛ ᴛᴏ ᴏᴡɴᴇʀ 👑", url=OWNER_LNK)])
-    buttons.append([InlineKeyboardButton(
-        text="🚫 ᴄʟᴏsᴇ 🚫", callback_data='close_data')])
-    d = await message.reply_text(text=script.CUDNT_FND.format(message.from_user.mention), reply_markup=InlineKeyboardMarkup(buttons), reply_to_message_id=message.id)
-    await asyncio.sleep(60)
-    await d.delete()
+    button = [
+        [InlineKeyboardButton("👑 ʀᴇǫᴜᴇsᴛ ᴛᴏ ᴏᴡɴᴇʀ 👑", url=OWNER_LNK)],
+        [InlineKeyboardButton("🔍 ᴄʜᴇᴄᴋ sᴘᴇʟʟɪɴɢ ᴏɴ ɢᴏᴏɢʟᴇ 🔍", url=f"https://www.google.com/search?q={google}")]
+    ]
+
+    if movies:
+        for movie in movies[:5]:
+            button.append([InlineKeyboardButton(text=f"🎬 {movie.get('title')}", callback_data=f"spol#{movie.movieID}#{user}")])
+
+    try:
+        user_mention = message.from_user.mention if message.from_user else "User"
+        k = await message.reply_text(
+            text=script.I_CUDNT.format(user_mention),
+            reply_markup=InlineKeyboardMarkup(button),
+            reply_to_message_id=message.id
+        )
+        await asyncio.sleep(60)
+        try:
+            await k.delete()
+        except Exception:
+            pass
+    except Exception as e:
+        logger.exception("advantage_spell_chok reply failed: %s", e)
+
     try:
         await message.delete()
-    except:
+    except Exception:
         pass
     

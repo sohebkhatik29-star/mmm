@@ -140,10 +140,23 @@ Nᴀᴍᴇ - {}
     PRE_STREAM_ALERT = """⚠️ ᴘʀᴇᴍɪᴜᴍ ᴄᴏɴᴛᴇɴᴛ ❗  
 🔓 ᴜɴʟᴏᴄᴋ ɪᴛ ʙʏ ᴜᴘɢʀᴀᴅɪɴɢ ᴛᴏ ᴘʀᴇᴍɪᴜᴍ"""
 
-    CUDNT_FND = SPELLING_ERROR_TXT = """<b>‼️ ꜱᴘᴇʟʟɪɴɢ ᴍɪꜱᴛᴀᴋᴇ ʙʀᴏ!</b>  
-<b>😊 ɴᴏ ᴡᴏʀʀɪᴇꜱ — ᴄʜᴏᴏꜱᴇ ᴛʜᴇ ᴄᴏʀʀᴇᴄᴛ ᴏɴᴇ ʙᴇʟᴏᴡ 👇</b>
+    CUDNT_FND = SPELLING_ERROR_TXT = """<b>👋 ʜᴇʏ {},</b>
 
-<blockquote>👇 नीचे दिए गए विकल्पों में से movie के नाम की सही spelling चुनें</blockquote>"""
+<b>⚠️ Sᴏʀʀʏ! Tʜᴇ ʀᴇǫᴜᴇsᴛᴇᴅ ꜰɪʟᴇ ɪs ɴᴏᴛ ᴀᴠᴀɪʟᴀʙʟᴇ ɪɴ ᴏᴜʀ ᴅᴀᴛᴀʙᴀsᴇ ʏᴇᴛ.</b>
+
+<blockquote>❓ <b>Wʜʏ ᴛʜɪs ʜᴀᴘᴘᴇɴs:</b>
+1️⃣ Tʜᴇ ᴍᴏᴠɪᴇ/ꜱᴇʀɪᴇꜱ ɪs ɴᴏᴛ ᴜᴘʟᴏᴀᴅᴇᴅ ʏᴇᴛ.
+2️⃣ Sᴘᴇʟʟɪɴɢ ᴍɪɢʜᴛ ʙᴇ ɪɴᴄᴏʀʀᴇᴄᴛ ᴏʀ ᴍɪssɪɴɢ ʏᴇᴀʀ/sᴇᴀsᴏɴ.
+3️⃣ OTT / DVD ʀᴇʟᴇᴀsᴇ ɪs ᴘᴇɴᴅɪɴɢ.</blockquote>
+
+<blockquote>📩 <b>Hᴏᴡ ᴛᴏ Gᴇᴛ Iᴛ:</b>
+• Cʟɪᴄᴋ ᴛʜᴇ <b>ʀᴇǫᴜᴇsᴛ ᴛᴏ ᴏᴡɴᴇʀ</b> ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ.
+• Oᴡɴᴇʀ Iᴅ: <code>5566977478</code> (@movies_1780)
+• Sᴇɴᴅ ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ ᴀɴᴅ ɪᴛ ᴡɪʟʟ ʙᴇ ᴜᴘʟᴏᴀᴅᴇᴅ sᴏᴏɴ!</blockquote>
+
+<b>📝 Cᴏʀʀᴇᴄᴛ Rᴇǫᴜᴇsᴛ Fᴏʀᴍᴀᴛ:</b>
+• <b>Mᴏᴠɪᴇs:</b> <code>Movie Name Year</code> (ᴇ.ɢ. <code>Jawan 2023</code>)
+• <b>Sᴇʀɪᴇs:</b> <code>Series Name S01</code> (ᴇ.ɢ. <code>Loki S01</code>)"""
 
 
     DEL_MSG = """⚠️ ᴛʜɪꜱ ᴍᴏᴠɪᴇ ꜰɪʟᴇ/ᴠɪᴅᴇᴏ ᴡɪʟʟ ʙᴇ ᴅᴇʟᴇᴛᴇᴅ ɪɴ <b><u><code>{}</code></u></b>
