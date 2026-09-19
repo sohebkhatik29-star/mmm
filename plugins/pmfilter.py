@@ -2056,7 +2056,8 @@ async def advantage_spell_chok(client, message):
     except Exception as e:
         logger.exception("get_poster failed for query=%s: %s", query, e)
         try:
-            k = await message.reply(script.I_CUDNT.format(message.from_user.mention))
+            button = [[InlineKeyboardButton("👑 ʀᴇǫᴜᴇsᴛ ᴛᴏ ᴏᴡɴᴇʀ 👑", url=OWNER_LNK)]]
+            k = await message.reply(script.I_CUDNT.format(message.from_user.mention), reply_markup=InlineKeyboardMarkup(button))
             await asyncio.sleep(60)
             try:
                 await k.delete()
@@ -2071,9 +2072,11 @@ async def advantage_spell_chok(client, message):
         return
     if not movies:
         google = quote_plus(search)
-        button = [[InlineKeyboardButton(
-            "🔍 ᴄʜᴇᴄᴋ sᴘᴇʟʟɪɴɢ ᴏɴ ɢᴏᴏɢʟᴇ 🔍", url=f"https://www.google.com/search?q={google}")]]
-        k = await message.reply_text(text=script.I_CUDNT.format(search), reply_markup=InlineKeyboardMarkup(button))
+        button = [
+            [InlineKeyboardButton("👑 ʀᴇǫᴜᴇsᴛ ᴛᴏ ᴏᴡɴᴇʀ 👑", url=OWNER_LNK)],
+            [InlineKeyboardButton("🔍 ᴄʜᴇᴄᴋ sᴘᴇʟʟɪɴɢ ᴏɴ ɢᴏᴏɢʟᴇ 🔍", url=f"https://www.google.com/search?q={google}")]
+        ]
+        k = await message.reply_text(text=script.I_CUDNT.format(message.from_user.mention), reply_markup=InlineKeyboardMarkup(button))
         await asyncio.sleep(60)
         await k.delete()
         try:
@@ -2086,6 +2089,7 @@ async def advantage_spell_chok(client, message):
         [InlineKeyboardButton(text=movie.get('title'), callback_data=f"spol#{movie.movieID}#{user}")
          ] for movie in movies]
 
+    buttons.append([InlineKeyboardButton("👑 ʀᴇǫᴜᴇsᴛ ᴛᴏ ᴏᴡɴᴇʀ 👑", url=OWNER_LNK)])
     buttons.append([InlineKeyboardButton(
         text="🚫 ᴄʟᴏsᴇ 🚫", callback_data='close_data')])
     d = await message.reply_text(text=script.CUDNT_FND.format(message.from_user.mention), reply_markup=InlineKeyboardMarkup(buttons), reply_to_message_id=message.id)
