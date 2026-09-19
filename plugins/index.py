@@ -213,43 +213,31 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot, media_filter="all"):
             start_skip = temp.CURRENT
 
             await msg.edit(
-                f"📊 <b>Finding channel start point...</b>\n"
+                f"📊 <b>Indexing Started...</b>\n"
                 f"📌 Mode: <code>{mode_label}</code>\n"
-                f"💬 Chat: <code>{chat}</code>",
+                f"💬 Chat: <code>{chat}</code>\n"
+                f"⏰ Please wait, fetching media...",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('Cancel', callback_data='index_cancel')]])
             )
 
-            # If no skip set and lst_msg_id is large, find where messages actually start
-            if start_skip == 0 and lst_msg_id > 200:
-                first_msg_id = await find_first_message_id(bot, chat, 1, lst_msg_id)
-                current = max(0, first_msg_id - 1)
-            else:
-                current = start_skip
-
-            total_messages = lst_msg_id
-            total_fetch = max(1, lst_msg_id - current)
+            # Strategy 1: Reverse pagination from lst_msg_id downwards (or get_chat_history)
+            # Since files are at/near lst_msg_id, we fetch backward in batches of 200:
+            # e.g., lst_msg_id -> lst_msg_id - 200 -> lst_msg_id - 400 ...
+            # This ensures we get all files immediately with 0 deleted-message delays!
+            
+            curr_id = lst_msg_id
             BATCH_SIZE = 200
+            empty_streak = 0
+            scanned_total = 0
 
-            await msg.edit(
-                f"📊 Indexing Starting...\n"
-                f"📌 Mode: <code>{mode_label}</code>\n"
-                f"💬 Total Range: <code>{current + 1} - {lst_msg_id}</code>\n"
-                f"📋 Messages to Scan: <code>{total_fetch}</code>\n"
-                f"⏰ Elapsed: <code>0s</code>",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('Cancel', callback_data='index_cancel')]])
-            )
-
-            empty_batch_streak = 0
-            batch_times = []
-
-            while current < lst_msg_id:
+            while curr_id > start_skip:
                 if temp.CANCEL:
                     break
 
-                batch_start = time.time()
-                start_id = current + 1
-                end_id = min(current + BATCH_SIZE, lst_msg_id)
-                message_ids = list(range(start_id, end_id + 1))
+                batch_end = curr_id
+                batch_start = max(start_skip + 1, curr_id - BATCH_SIZE + 1)
+                message_ids = list(range(batch_start, batch_end + 1))
+                curr_id = batch_start - 1
 
                 try:
                     messages = await bot.get_messages(chat, message_ids)
@@ -265,20 +253,18 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot, media_filter="all"):
                         messages = []
                 except Exception as e:
                     errors += len(message_ids)
-                    current += len(message_ids)
                     continue
 
                 batch_save_tasks = []
-                batch_non_empty = 0
+                batch_media_count = 0
 
-                for message in messages:
-                    current += 1
+                for message in reversed(messages):
+                    scanned_total += 1
                     try:
-                        if message.empty:
+                        if not message or message.empty:
                             deleted += 1
                             continue
-                        
-                        batch_non_empty += 1
+
                         if not message.media:
                             no_media += 1
                             continue
@@ -290,6 +276,8 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot, media_filter="all"):
                         if not media:
                             unsupported += 1
                             continue
+                        
+                        batch_media_count += 1
                         media.file_type = message.media.value
                         media.caption = message.caption
                         batch_save_tasks.append(save_file(media))
@@ -297,19 +285,10 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot, media_filter="all"):
                         errors += 1
                         continue
 
-                if batch_non_empty == 0:
-                    empty_batch_streak += 1
+                if batch_media_count == 0:
+                    empty_streak += 1
                 else:
-                    empty_batch_streak = 0
-
-                # If 5 batches in a row (1000 messages) are empty/deleted, fast-forward across the gap!
-                if empty_batch_streak >= 5 and current < lst_msg_id - 500:
-                    next_real_id = await find_first_message_id(bot, chat, current + 1, lst_msg_id)
-                    if next_real_id > current + 1:
-                        skipped_empty = (next_real_id - 1) - current
-                        deleted += skipped_empty
-                        current = next_real_id - 1
-                        empty_batch_streak = 0
+                    empty_streak = 0
 
                 if batch_save_tasks:
                     results = await asyncio.gather(*batch_save_tasks, return_exceptions=True)
@@ -325,32 +304,20 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot, media_filter="all"):
                             elif code == 2:
                                 errors += 1
 
-                batch_time = time.time() - batch_start
-                batch_times.append(batch_time)
-                elapsed = time.time() - start_time
-                progress = max(0, current - start_skip)
-                percentage = min(100.0, (progress / total_fetch) * 100) if total_fetch > 0 else 100
-                avg_batch_time = sum(batch_times[-10:]) / len(batch_times[-10:]) if batch_times else 1
-                remaining_msgs = max(0, lst_msg_id - current)
-                eta = (remaining_msgs / BATCH_SIZE) * avg_batch_time
-                progress_bar = get_progress_bar(int(percentage))
-
-                # Update UI periodically (every 4 seconds) or on final batch
-                if time.time() - last_edit_time >= 4 or current >= lst_msg_id:
+                # Update UI every 4 seconds
+                if time.time() - last_edit_time >= 4 or curr_id <= start_skip:
+                    elapsed = time.time() - start_time
                     try:
                         await msg.edit(
-                            f"📊 Indexing Progress\n"
-                            f"📌 Mode: <code>{mode_label}</code>\n"
-                            f"{progress_bar} <code>{percentage:.1f}%</code>\n\n"
-                            f"Total Messages: <code>{total_messages}</code>\n"
-                            f"Scanned: <code>{current}</code> / <code>{lst_msg_id}</code>\n"
-                            f"💾 Saved: <code>{total_files}</code>\n"
-                            f"♻️ Duplicates: <code>{duplicate}</code>\n"
-                            f"🗑️ Deleted/Empty: <code>{deleted}</code>\n"
-                            f"⏩ Other Media Skipped: <code>{no_media + unsupported}</code>\n"
-                            f"⚠️ Errors: <code>{errors}</code>\n"
-                            f"⏱️ Elapsed: <code>{get_readable_time(elapsed)}</code>\n"
-                            f"⏰ ETA: <code>{get_readable_time(eta)}</code>",
+                            f"📊 <b>Indexing in Progress</b>\n"
+                            f"📌 Mode: <code>{mode_label}</code>\n\n"
+                            f"💾 <b>Saved Files:</b> <code>{total_files}</code>\n"
+                            f"♻️ <b>Duplicates:</b> <code>{duplicate}</code>\n"
+                            f"🔍 <b>Messages Scanned:</b> <code>{scanned_total}</code>\n"
+                            f"🗑️ <b>Deleted/Empty:</b> <code>{deleted}</code>\n"
+                            f"⏩ <b>Other Skipped:</b> <code>{no_media + unsupported}</code>\n"
+                            f"⚠️ <b>Errors:</b> <code>{errors}</code>\n"
+                            f"⏱️ <b>Elapsed:</b> <code>{get_readable_time(elapsed)}</code>",
                             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('Cancel', callback_data='index_cancel')]])
                         )
                         last_edit_time = time.time()
@@ -359,6 +326,12 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot, media_filter="all"):
                     except Exception:
                         pass
 
+                # If 10 consecutive batches (2000 messages) have 0 media and we already saved files, stop or continue
+                # We stop after 20 consecutive empty batches (4000 messages) to avoid scanning empty channel start
+                if empty_streak >= 25 and total_files > 0:
+                    logger.info("Reached empty message gap of 5000 messages after finding files, indexing complete.")
+                    break
+
             elapsed = time.time() - start_time
             status_title = "🚫 Indexing Cancelled!" if temp.CANCEL else "✅ Indexing Completed!"
 
@@ -366,22 +339,13 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot, media_filter="all"):
                 await msg.edit(
                     f"{status_title}\n"
                     f"📌 Mode: <code>{mode_label}</code>\n\n"
-                    f"💾 Files Saved: <code>{total_files}</code>\n"
-                    f"♻️ Duplicates: <code>{duplicate}</code>\n"
-                    f"🗑️ Deleted/Empty Skipped: <code>{deleted}</code>\n"
-                    f"⏩ Other Media Skipped: <code>{no_media + unsupported}</code>\n"
-                    f"⚠️ Errors: <code>{errors}</code>\n"
-                    f"⏱️ Total Time: <code>{get_readable_time(elapsed)}</code>",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('Close', callback_data='close_data')]])
-                )
-            except Exception:
-                pass
-
-        except Exception as e:
-            logger.exception("Index error: %s", e)
-            try:
-                await msg.edit(
-                    f"❌ Error: <code>{e}</code>",
+                    f"💾 <b>Total Saved:</b> <code>{total_files}</code>\n"
+                    f"♻️ <b>Duplicates:</b> <code>{duplicate}</code>\n"
+                    f"🔍 <b>Total Scanned:</b> <code>{scanned_total}</code>\n"
+                    f"🗑️ <b>Deleted/Empty:</b> <code>{deleted}</code>\n"
+                    f"⏩ <b>Other Skipped:</b> <code>{no_media + unsupported}</code>\n"
+                    f"⚠️ <b>Errors:</b> <code>{errors}</code>\n"
+                    f"⏱️ <b>Total Time:</b> <code>{get_readable_time(elapsed)}</code>",
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('Close', callback_data='close_data')]])
                 )
             except Exception:
