@@ -156,23 +156,31 @@ Nᴀᴍᴇ - {}
 
     I_CUDNT = """<b>👋 ʜᴇʏ {},</b>
 
-<b>⚠️ Sᴏʀʀʏ, ᴛʜɪs ꜰɪʟᴇ/ᴍᴏᴠɪᴇ ɪs ɴᴏᴛ ᴀᴠᴀɪʟᴀʙʟᴇ ɪɴ ᴍʏ ᴅᴀᴛᴀʙᴀsᴇ.</b>
+<b>⚠️ Sᴏʀʀʏ! Tʜᴇ ʀᴇǫᴜᴇsᴛᴇᴅ ꜰɪʟᴇ ɪs ɴᴏᴛ ᴀᴠᴀɪʟᴀʙʟᴇ ɪɴ ᴏᴜʀ ᴅᴀᴛᴀʙᴀsᴇ ʏᴇᴛ.</b>
 
-<blockquote>📩 <b>Pʟᴇᴀsᴇ ʀᴇǫᴜᴇsᴛ ᴛʜᴇ ᴏᴡɴᴇʀ ᴛᴏ ᴜᴘʟᴏᴀᴅ ɪᴛ.</b></blockquote>
+<blockquote>❓ <b>Wʜʏ ᴛʜɪs ʜᴀᴘᴘᴇɴs:</b>
+1️⃣ Tʜᴇ ᴍᴏᴠɪᴇ/ꜱᴇʀɪᴇꜱ ɪs ɴᴏᴛ ᴜᴘʟᴏᴀᴅᴇᴅ ʏᴇᴛ.
+2️⃣ Sᴘᴇʟʟɪɴɢ ᴍɪɢʜᴛ ʙᴇ ɪɴᴄᴏʀʀᴇᴄᴛ ᴏʀ ᴍɪssɪɴɢ ʏᴇᴀʀ/sᴇᴀsᴏɴ.
+3️⃣ OTT / DVD ʀᴇʟᴇᴀsᴇ ɪs ᴘᴇɴᴅɪɴɢ.</blockquote>
 
-<b>📝 ʀᴇǫᴜᴇꜱᴛ ꜰᴏʀᴍᴀᴛ:</b>
-• <b>ᴍᴏᴠɪᴇ:</b> <code>Movie Name Year</code> (ᴇ.ɢ. <code>Jawan 2023</code>)
-• <b>ꜱᴇʀɪᴇꜱ:</b> <code>Series Name S01</code> (ᴇ.ɢ. <code>Loki S01</code>)"""
+<blockquote>📩 <b>Hᴏᴡ ᴛᴏ Gᴇᴛ Iᴛ:</b>
+• Cʟɪᴄᴋ ᴛʜᴇ <b>ʀᴇǫᴜᴇsᴛ ᴛᴏ ᴏᴡɴᴇʀ</b> ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ.
+• Oᴡɴᴇʀ Iᴅ: <code>5566977478</code> (@movies_1780)
+• Sᴇɴᴅ ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ ᴀɴᴅ ɪᴛ ᴡɪʟʟ ʙᴇ ᴜᴘʟᴏᴀᴅᴇᴅ sᴏᴏɴ!</blockquote>
+
+<b>📝 Cᴏʀʀᴇᴄᴛ Rᴇǫᴜᴇsᴛ Fᴏʀᴍᴀᴛ:</b>
+• <b>Mᴏᴠɪᴇs:</b> <code>Movie Name Year</code> (ᴇ.ɢ. <code>Jawan 2023</code>)
+• <b>Sᴇʀɪᴇs:</b> <code>Series Name S01</code> (ᴇ.ɢ. <code>Loki S01</code>)"""
     
     I_CUD_NT = """<b>👋 ʜᴇʏ {},</b>
 
-<b>⚠️ Sᴏʀʀʏ, ᴛʜɪs ᴍᴏᴠɪᴇ/ꜱᴇʀɪᴇꜱ ɪs ɴᴏᴛ ᴀᴠᴀɪʟᴀʙʟᴇ ɪɴ ᴍʏ ᴅᴀᴛᴀʙᴀsᴇ.</b>
+<b>⚠️ Sᴏʀʀʏ! Tʜɪs ᴍᴏᴠɪᴇ/ꜱᴇʀɪᴇꜱ ɪs ɴᴏᴛ ᴀᴠᴀɪʟᴀʙʟᴇ ɪɴ ᴏᴜʀ ᴅᴀᴛᴀʙᴀsᴇ.</b>
 
-<blockquote>📩 <b>Pʟᴇᴀsᴇ ᴄᴏɴᴛᴀᴄᴛ / ʀᴇǫᴜᴇsᴛ ᴛʜᴇ ᴏᴡɴᴇʀ.</b></blockquote>"""
+<blockquote>📩 <b>Pʟᴇᴀsᴇ ʀᴇǫᴜᴇsᴛ ᴛʜᴇ ᴏᴡɴᴇʀ (ID: <code>5566977478</code> / @movies_1780) ᴛᴏ ᴜᴘʟᴏᴀᴅ ɪᴛ.</b></blockquote>"""
 
-    MVE_NT_FND = NOT_FOUND_TXT = """<b>⚠️ Sᴏʀʀʏ, ᴛʜɪs ꜰɪʟᴇ ɪs ɴᴏᴛ ᴀᴠᴀɪʟᴀʙʟᴇ ɪɴ ᴍʏ ᴅᴀᴛᴀʙᴀsᴇ.</b>
+    MVE_NT_FND = NOT_FOUND_TXT = """<b>⚠️ Sᴏʀʀʏ! Tʜɪs ꜰɪʟᴇ ɪs ɴᴏᴛ ᴀᴠᴀɪʟᴀʙʟᴇ ɪɴ ᴏᴜʀ ᴅᴀᴛᴀʙᴀsᴇ.</b>
 
-<blockquote>📩 <b>Pʟᴇᴀsᴇ ʀᴇǫᴜᴇsᴛ ᴛᴏ ᴛʜᴇ ᴏᴡɴᴇʀ ᴛᴏ ᴜᴘʟᴏᴀᴅ ɪᴛ.</b></blockquote>"""
+<blockquote>📩 <b>Pʟᴇᴀsᴇ ʀᴇǫᴜᴇsᴛ ᴛʜᴇ ᴏᴡɴᴇʀ (ID: <code>5566977478</code> / @movies_1780) ᴛᴏ ᴜᴘʟᴏᴀᴅ ɪᴛ. Cʟɪᴄᴋ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ 👇</b></blockquote>"""
 
     
     TOP_ALRT_MSG = """ꜱᴇᴀʀᴄʜɪɴɢ ꜰᴏʀ ǫᴜᴇʀʏ ɪɴ ᴍʏ ᴅᴀᴛᴀʙᴀꜱᴇ..."""
