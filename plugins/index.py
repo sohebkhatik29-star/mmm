@@ -155,6 +155,38 @@ def get_progress_bar(percent, length=10):
     unfilled = length - filled
     return '🟩' * filled + '⬜️' * unfilled
 
+async def find_first_message_id(bot, chat, start_id, end_id):
+    """Binary search to quickly find where existing messages start in a channel."""
+    if start_id >= end_id:
+        return start_id
+    low = start_id
+    high = end_id
+    first_found = end_id
+
+    while low <= high:
+        mid = (low + high) // 2
+        slice_ids = list(range(mid, min(mid + 50, high + 1)))
+        try:
+            msgs = await bot.get_messages(chat, slice_ids)
+            if not isinstance(msgs, list):
+                msgs = [msgs]
+            found = False
+            for m in msgs:
+                if m and not m.empty:
+                    first_found = min(first_found, m.id)
+                    found = True
+                    break
+            if found:
+                high = mid - 1
+            else:
+                low = mid + 50
+        except FloodWait as e:
+            await asyncio.sleep(e.value + 1)
+        except Exception:
+            low += 50
+
+    return max(start_id, min(first_found, end_id))
+
 async def index_files_to_db(lst_msg_id, chat, msg, bot, media_filter="all"):
     total_files = 0
     duplicate = 0
@@ -177,93 +209,110 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot, media_filter="all"):
 
     async with lock:
         try:
-            current_skip = temp.CURRENT
             temp.CANCEL = False
+            start_skip = temp.CURRENT
+
+            await msg.edit(
+                f"📊 <b>Finding channel start point...</b>\n"
+                f"📌 Mode: <code>{mode_label}</code>\n"
+                f"💬 Chat: <code>{chat}</code>",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('Cancel', callback_data='index_cancel')]])
+            )
+
+            # If no skip set and lst_msg_id is large, find where messages actually start
+            if start_skip == 0 and lst_msg_id > 200:
+                first_msg_id = await find_first_message_id(bot, chat, 1, lst_msg_id)
+                current = max(0, first_msg_id - 1)
+            else:
+                current = start_skip
+
+            total_messages = lst_msg_id
+            total_fetch = max(1, lst_msg_id - current)
+            BATCH_SIZE = 200
 
             await msg.edit(
                 f"📊 Indexing Starting...\n"
                 f"📌 Mode: <code>{mode_label}</code>\n"
-                f"💬 Chat: <code>{chat}</code>\n"
+                f"💬 Total Range: <code>{current + 1} - {lst_msg_id}</code>\n"
+                f"📋 Messages to Scan: <code>{total_fetch}</code>\n"
                 f"⏰ Elapsed: <code>0s</code>",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('Cancel', callback_data='index_cancel')]])
             )
 
-            # Strategy 1: Use get_chat_history to fetch ONLY existing messages directly (Ultra-fast)
-            use_history = True
-            processed_count = 0
-            save_tasks = []
+            empty_batch_streak = 0
+            batch_times = []
 
-            try:
-                async for message in bot.get_chat_history(chat):
-                    if temp.CANCEL:
-                        break
-                    if message.id <= current_skip:
-                        break
-                    if lst_msg_id and message.id > lst_msg_id:
-                        continue
+            while current < lst_msg_id:
+                if temp.CANCEL:
+                    break
 
-                    processed_count += 1
+                batch_start = time.time()
+                start_id = current + 1
+                end_id = min(current + BATCH_SIZE, lst_msg_id)
+                message_ids = list(range(start_id, end_id + 1))
+
+                try:
+                    messages = await bot.get_messages(chat, message_ids)
+                    if not isinstance(messages, list):
+                        messages = [messages]
+                except FloodWait as e:
+                    await asyncio.sleep(e.value + 1)
+                    try:
+                        messages = await bot.get_messages(chat, message_ids)
+                        if not isinstance(messages, list):
+                            messages = [messages]
+                    except Exception:
+                        messages = []
+                except Exception as e:
+                    errors += len(message_ids)
+                    current += len(message_ids)
+                    continue
+
+                batch_save_tasks = []
+                batch_non_empty = 0
+
+                for message in messages:
+                    current += 1
                     try:
                         if message.empty:
                             deleted += 1
                             continue
-                        elif not message.media:
+                        
+                        batch_non_empty += 1
+                        if not message.media:
                             no_media += 1
                             continue
                         elif message.media not in allowed_media:
                             unsupported += 1
                             continue
+
                         media = getattr(message, message.media.value, None)
                         if not media:
                             unsupported += 1
                             continue
                         media.file_type = message.media.value
                         media.caption = message.caption
-                        save_tasks.append(save_file(media))
+                        batch_save_tasks.append(save_file(media))
                     except Exception:
                         errors += 1
                         continue
 
-                    # Process save tasks in batches of 40
-                    if len(save_tasks) >= 40:
-                        results = await asyncio.gather(*save_tasks, return_exceptions=True)
-                        for result in results:
-                            if isinstance(result, Exception):
-                                errors += 1
-                            else:
-                                ok, code = result
-                                if ok:
-                                    total_files += 1
-                                elif code == 0:
-                                    duplicate += 1
-                                elif code == 2:
-                                    errors += 1
-                        save_tasks = []
+                if batch_non_empty == 0:
+                    empty_batch_streak += 1
+                else:
+                    empty_batch_streak = 0
 
-                    # Update UI at most once every 4 seconds to avoid Telegram rate-limits
-                    if time.time() - last_edit_time >= 4:
-                        elapsed = time.time() - start_time
-                        try:
-                            await msg.edit(
-                                f"📊 Indexing in Progress...\n"
-                                f"📌 Mode: <code>{mode_label}</code>\n\n"
-                                f"📦 Messages Scanned: <code>{processed_count}</code>\n"
-                                f"💾 Files Saved: <code>{total_files}</code>\n"
-                                f"♻️ Duplicates: <code>{duplicate}</code>\n"
-                                f"⏩ Skipped/Other: <code>{no_media + unsupported}</code>\n"
-                                f"⚠️ Errors: <code>{errors}</code>\n"
-                                f"⏱️ Elapsed: <code>{get_readable_time(elapsed)}</code>",
-                                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('Cancel', callback_data='index_cancel')]])
-                            )
-                            last_edit_time = time.time()
-                        except FloodWait as e:
-                            await asyncio.sleep(e.value + 1)
-                        except Exception:
-                            pass
+                # If 5 batches in a row (1000 messages) are empty/deleted, fast-forward across the gap!
+                if empty_batch_streak >= 5 and current < lst_msg_id - 500:
+                    next_real_id = await find_first_message_id(bot, chat, current + 1, lst_msg_id)
+                    if next_real_id > current + 1:
+                        skipped_empty = (next_real_id - 1) - current
+                        deleted += skipped_empty
+                        current = next_real_id - 1
+                        empty_batch_streak = 0
 
-                # Flush remaining save tasks
-                if save_tasks:
-                    results = await asyncio.gather(*save_tasks, return_exceptions=True)
+                if batch_save_tasks:
+                    results = await asyncio.gather(*batch_save_tasks, return_exceptions=True)
                     for result in results:
                         if isinstance(result, Exception):
                             errors += 1
@@ -275,106 +324,40 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot, media_filter="all"):
                                 duplicate += 1
                             elif code == 2:
                                 errors += 1
-                    save_tasks = []
 
-            except Exception as hist_err:
-                logger.warning("get_chat_history error: %s, using batch fallback...", hist_err)
-                use_history = False
+                batch_time = time.time() - batch_start
+                batch_times.append(batch_time)
+                elapsed = time.time() - start_time
+                progress = max(0, current - start_skip)
+                percentage = min(100.0, (progress / total_fetch) * 100) if total_fetch > 0 else 100
+                avg_batch_time = sum(batch_times[-10:]) / len(batch_times[-10:]) if batch_times else 1
+                remaining_msgs = max(0, lst_msg_id - current)
+                eta = (remaining_msgs / BATCH_SIZE) * avg_batch_time
+                progress_bar = get_progress_bar(int(percentage))
 
-            # Strategy 2: Fallback to get_messages batching if get_chat_history failed
-            if not use_history and not temp.CANCEL:
-                BATCH_SIZE = 200
-                current = temp.CURRENT
-                total_messages = lst_msg_id
-                total_fetch = max(1, lst_msg_id - current)
-                batches = ceil(total_fetch / BATCH_SIZE)
-
-                for batch in range(batches):
-                    if temp.CANCEL:
-                        break
-                    start_id = current + 1
-                    end_id = min(current + BATCH_SIZE, lst_msg_id)
-                    message_ids = list(range(start_id, end_id + 1))
+                # Update UI periodically (every 4 seconds) or on final batch
+                if time.time() - last_edit_time >= 4 or current >= lst_msg_id:
                     try:
-                        messages = await bot.get_messages(chat, message_ids)
-                        if not isinstance(messages, list):
-                            messages = [messages]
+                        await msg.edit(
+                            f"📊 Indexing Progress\n"
+                            f"📌 Mode: <code>{mode_label}</code>\n"
+                            f"{progress_bar} <code>{percentage:.1f}%</code>\n\n"
+                            f"Total Messages: <code>{total_messages}</code>\n"
+                            f"Scanned: <code>{current}</code> / <code>{lst_msg_id}</code>\n"
+                            f"💾 Saved: <code>{total_files}</code>\n"
+                            f"♻️ Duplicates: <code>{duplicate}</code>\n"
+                            f"🗑️ Deleted/Empty: <code>{deleted}</code>\n"
+                            f"⏩ Other Media Skipped: <code>{no_media + unsupported}</code>\n"
+                            f"⚠️ Errors: <code>{errors}</code>\n"
+                            f"⏱️ Elapsed: <code>{get_readable_time(elapsed)}</code>\n"
+                            f"⏰ ETA: <code>{get_readable_time(eta)}</code>",
+                            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('Cancel', callback_data='index_cancel')]])
+                        )
+                        last_edit_time = time.time()
                     except FloodWait as e:
                         await asyncio.sleep(e.value + 1)
-                        try:
-                            messages = await bot.get_messages(chat, message_ids)
-                            if not isinstance(messages, list):
-                                messages = [messages]
-                        except Exception:
-                            messages = []
-                    except Exception as e:
-                        errors += len(message_ids)
-                        current += len(message_ids)
-                        continue
-
-                    batch_save_tasks = []
-                    for message in messages:
-                        current += 1
-                        try:
-                            if message.empty:
-                                deleted += 1
-                                continue
-                            elif not message.media:
-                                no_media += 1
-                                continue
-                            elif message.media not in allowed_media:
-                                unsupported += 1
-                                continue
-                            media = getattr(message, message.media.value, None)
-                            if not media:
-                                unsupported += 1
-                                continue
-                            media.file_type = message.media.value
-                            media.caption = message.caption
-                            batch_save_tasks.append(save_file(media))
-                        except Exception:
-                            errors += 1
-                            continue
-
-                    if batch_save_tasks:
-                        results = await asyncio.gather(*batch_save_tasks, return_exceptions=True)
-                        for result in results:
-                            if isinstance(result, Exception):
-                                errors += 1
-                            else:
-                                ok, code = result
-                                if ok:
-                                    total_files += 1
-                                elif code == 0:
-                                    duplicate += 1
-                                elif code == 2:
-                                    errors += 1
-
-                    if time.time() - last_edit_time >= 4 or batch == batches - 1:
-                        elapsed = time.time() - start_time
-                        progress = current - temp.CURRENT
-                        percentage = (progress / total_fetch) * 100 if total_fetch > 0 else 100
-                        progress_bar = get_progress_bar(int(percentage))
-                        try:
-                            await msg.edit(
-                                f"📊 Indexing Progress 📦 Batch {batch + 1}/{batches}\n"
-                                f"📌 Mode: <code>{mode_label}</code>\n"
-                                f"{progress_bar} <code>{percentage:.1f}%</code>\n\n"
-                                f"Total Messages: <code>{total_messages}</code>\n"
-                                f"Fetched: <code>{current}</code>\n"
-                                f"Saved: <code>{total_files}</code>\n"
-                                f"Duplicates: <code>{duplicate}</code>\n"
-                                f"Deleted: <code>{deleted}</code>\n"
-                                f"Non-Media/Skipped: <code>{no_media + unsupported}</code>\n"
-                                f"Errors: <code>{errors}</code>\n"
-                                f"⏱️ Elapsed: <code>{get_readable_time(elapsed)}</code>",
-                                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('Cancel', callback_data='index_cancel')]])
-                            )
-                            last_edit_time = time.time()
-                        except FloodWait as e:
-                            await asyncio.sleep(e.value + 1)
-                        except Exception:
-                            pass
+                    except Exception:
+                        pass
 
             elapsed = time.time() - start_time
             status_title = "🚫 Indexing Cancelled!" if temp.CANCEL else "✅ Indexing Completed!"
@@ -383,11 +366,22 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot, media_filter="all"):
                 await msg.edit(
                     f"{status_title}\n"
                     f"📌 Mode: <code>{mode_label}</code>\n\n"
-                    f"💾 Saved: <code>{total_files}</code>\n"
+                    f"💾 Files Saved: <code>{total_files}</code>\n"
                     f"♻️ Duplicates: <code>{duplicate}</code>\n"
-                    f"⏩ Skipped/Other: <code>{no_media + unsupported}</code>\n"
+                    f"🗑️ Deleted/Empty Skipped: <code>{deleted}</code>\n"
+                    f"⏩ Other Media Skipped: <code>{no_media + unsupported}</code>\n"
                     f"⚠️ Errors: <code>{errors}</code>\n"
                     f"⏱️ Total Time: <code>{get_readable_time(elapsed)}</code>",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('Close', callback_data='close_data')]])
+                )
+            except Exception:
+                pass
+
+        except Exception as e:
+            logger.exception("Index error: %s", e)
+            try:
+                await msg.edit(
+                    f"❌ Error: <code>{e}</code>",
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('Close', callback_data='close_data')]])
                 )
             except Exception:
