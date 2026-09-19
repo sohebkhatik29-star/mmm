@@ -21,8 +21,9 @@ async def index_files(bot, query):
     if query.data.startswith('index_cancel'):
         temp.CANCEL = True
         return await query.answer("Cancelling Indexing")
-    _, raju, chat, lst_msg_id, from_user = query.data.split("#")
-    if raju == 'reject':
+    data_parts = query.data.split("#")
+    _, mode, chat, lst_msg_id, from_user = data_parts[:5]
+    if mode == 'reject':
         await query.message.delete()
         await bot.send_message(int(from_user),
                                f'Your Submission for indexing {chat} has been declined by our moderators.',
@@ -38,8 +39,16 @@ async def index_files(bot, query):
         await bot.send_message(int(from_user),
                                f'Your Submission for indexing {chat} has been accepted by our moderators and will be added soon.',
                                reply_to_message_id=int(lst_msg_id))
+    
+    if mode == "video":
+        mode_label = "🎬 Only Videos"
+    elif mode == "document":
+        mode_label = "📁 Only Documents"
+    else:
+        mode_label = "🎬 + 📁 Videos & Documents"
+
     await msg.edit(
-        "Starting Indexing",
+        f"Starting Indexing...\n📌 Mode: <code>{mode_label}</code>",
         reply_markup=InlineKeyboardMarkup(
             [[InlineKeyboardButton('Cancel', callback_data='index_cancel')]]
         )
@@ -48,7 +57,7 @@ async def index_files(bot, query):
         chat = int(chat)
     except:
         chat = chat
-    await index_files_to_db(int(lst_msg_id), chat, msg, bot)
+    await index_files_to_db(int(lst_msg_id), chat, msg, bot, media_filter=mode)
 
 
 @Client.on_message((filters.forwarded | (filters.regex(r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$")) & filters.text ) & filters.private & filters.incoming)
@@ -85,8 +94,16 @@ async def send_for_index(bot, message):
 
     if message.from_user.id in ADMINS:
         buttons = [
-            [InlineKeyboardButton('Yes', callback_data=f'index#accept#{chat_id}#{last_msg_id}#{message.from_user.id}')],
-            [InlineKeyboardButton('Close', callback_data='close_data')]
+            [
+                InlineKeyboardButton('🎬 Oɴʟʏ Vɪᴅᴇᴏ', callback_data=f'index#video#{chat_id}#{last_msg_id}#{message.from_user.id}'),
+                InlineKeyboardButton('📁 Oɴʟʏ Dᴏᴄᴜᴍᴇɴᴛ', callback_data=f'index#document#{chat_id}#{last_msg_id}#{message.from_user.id}')
+            ],
+            [
+                InlineKeyboardButton('🎬 + 📁 Bᴏᴛʜ (Vɪᴅᴇᴏ & Dᴏᴄ)', callback_data=f'index#all#{chat_id}#{last_msg_id}#{message.from_user.id}')
+            ],
+            [
+                InlineKeyboardButton('🚫 Cʟᴏsᴇ', callback_data='close_data')
+            ]
         ]
         reply_markup = InlineKeyboardMarkup(buttons)
         return await message.reply(
@@ -101,8 +118,16 @@ async def send_for_index(bot, message):
     else:
         link = f"@{message.forward_from_chat.username}"
     buttons = [
-        [InlineKeyboardButton('Accept Index', callback_data=f'index#accept#{chat_id}#{last_msg_id}#{message.from_user.id}')],
-        [InlineKeyboardButton('Reject Index', callback_data=f'index#reject#{chat_id}#{message.id}#{message.from_user.id}')]
+        [
+            InlineKeyboardButton('🎬 Video', callback_data=f'index#video#{chat_id}#{last_msg_id}#{message.from_user.id}'),
+            InlineKeyboardButton('📁 Doc', callback_data=f'index#document#{chat_id}#{last_msg_id}#{message.from_user.id}')
+        ],
+        [
+            InlineKeyboardButton('🎬 + 📁 Both', callback_data=f'index#all#{chat_id}#{last_msg_id}#{message.from_user.id}')
+        ],
+        [
+            InlineKeyboardButton('Reject Index', callback_data=f'index#reject#{chat_id}#{message.id}#{message.from_user.id}')
+        ]
     ]
     reply_markup = InlineKeyboardMarkup(buttons)
     await bot.send_message(LOG_CHANNEL,
@@ -130,7 +155,7 @@ def get_progress_bar(percent, length=10):
     unfilled = length - filled
     return '🟩' * filled + '⬜️' * unfilled
 
-async def index_files_to_db(lst_msg_id, chat, msg, bot):
+async def index_files_to_db(lst_msg_id, chat, msg, bot, media_filter="all"):
     total_files = 0
     duplicate = 0
     errors = 0
@@ -139,6 +164,16 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
     unsupported = 0
     BATCH_SIZE = 200
     start_time = time.time()
+
+    if media_filter == "video":
+        allowed_media = [enums.MessageMediaType.VIDEO]
+        mode_label = "🎬 Only Videos"
+    elif media_filter == "document":
+        allowed_media = [enums.MessageMediaType.DOCUMENT]
+        mode_label = "📁 Only Documents"
+    else:
+        allowed_media = [enums.MessageMediaType.VIDEO, enums.MessageMediaType.AUDIO, enums.MessageMediaType.DOCUMENT]
+        mode_label = "🎬 + 📁 Videos & Documents"
 
     async with lock:
         try:
@@ -156,6 +191,7 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
             batch_times = []
             await msg.edit(
                 f"📊 Indexing Starting......\n"
+                f"📌 Mode: <code>{mode_label}</code>\n"
                 f"💬 Total Messages: <code>{total_messages}</code>\n"
                 f"📋 Total Fetch: <code> {total_fetch}</code>\n"
                 f"⏰ Elapsed: <code>{get_readable_time(time.time() - start_time)}</code>",
@@ -186,7 +222,7 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
                         elif not message.media:
                             no_media += 1
                             continue
-                        elif message.media not in [enums.MessageMediaType.VIDEO, enums.MessageMediaType.AUDIO, enums.MessageMediaType.DOCUMENT]:
+                        elif message.media not in allowed_media:
                             unsupported += 1
                             continue
                         media = getattr(message, message.media.value, None)
@@ -216,12 +252,13 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
                 batch_times.append(batch_time)
                 elapsed = time.time() - start_time
                 progress = current - temp.CURRENT
-                percentage = (progress / total_fetch) * 100
+                percentage = (progress / total_fetch) * 100 if total_fetch > 0 else 100
                 avg_batch_time = sum(batch_times) / len(batch_times) if batch_times else 1
                 eta = (total_fetch - progress) / BATCH_SIZE * avg_batch_time
                 progress_bar = get_progress_bar(int(percentage))
                 await msg.edit(
                     f"📊 Indexing Progress 📦 Batch {batch + 1}/{batches}\n"
+                    f"📌 Mode: <code>{mode_label}</code>\n"
                     f"{progress_bar} <code>{percentage:.1f}%</code>\n\n"
                     f"Total Messages: <code>{total_messages}</code>\n"
                     f"Total Fetched: <code>{total_fetch}</code>\n"
@@ -229,7 +266,7 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
                     f"Saved: <code>{total_files}</code>\n"
                     f"Duplicates: <code>{duplicate}</code>\n"
                     f"Deleted: <code>{deleted}</code>\n"
-                    f"Non-Media: <code>{no_media + unsupported}</code> (Unsupported: <code>{unsupported}</code>)\n"
+                    f"Non-Media/Skipped: <code>{no_media + unsupported}</code>\n"
                     f"Errors: <code>{errors}</code>\n"
                     f"⏱️ Elapsed: <code>{get_readable_time(elapsed)}</code>\n"
                     f"⏰ ETA: <code>{get_readable_time(eta)}</code>",
@@ -238,13 +275,14 @@ async def index_files_to_db(lst_msg_id, chat, msg, bot):
             elapsed = time.time() - start_time
             await msg.edit(
                 f"✅ Indexing Completed!\n"
+                f"📌 Mode: <code>{mode_label}</code>\n"
                 f"Total Messages: <code>{total_messages}</code>\n"
                 f"Total Fetched: <code>{total_fetch}</code>\n"
                 f"Fetched: <code>{current}</code>\n"
                 f"Saved: <code>{total_files}</code>\n"
                 f"Duplicates: <code>{duplicate}</code>\n"
                 f"Deleted: <code>{deleted}</code>\n"
-                f"Non-Media: <code>{no_media + unsupported}</code> (Unsupported: <code>{unsupported}</code>)\n"
+                f"Non-Media/Skipped: <code>{no_media + unsupported}</code>\n"
                 f"Errors: <code>{errors}</code>\n"
                 f"⏱️ Elapsed: <code>{get_readable_time(elapsed)}</code>",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('Close', callback_data='close_data')]])
