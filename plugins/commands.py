@@ -1200,19 +1200,19 @@ async def handle_shortner_command(c, m, shortner_key, api_key, log_prefix, fallb
             f"💔 ᴇʀʀᴏʀ - <code>{e}</code></b>"
         )
 
-@Client.on_message(filters.command('set_shortner'))
+@Client.on_message(filters.command('set_shortner') & filters.group)
 async def set_shortner(c, m):
     await handle_shortner_command(c, m, 'shortner', 'api', 'New_Shortner_Set_For_1st_Verify', SHORTENER_WEBSITE, SHORTENER_API)
 
-@Client.on_message(filters.command('set_shortner_2'))
+@Client.on_message(filters.command('set_shortner_2') & filters.group)
 async def set_shortner_2(c, m):
     await handle_shortner_command(c, m, 'shortner_two', 'api_two', 'New_Shortner_Set_For_2nd_Verify', SHORTENER_WEBSITE2, SHORTENER_API2)
 
-@Client.on_message(filters.command('set_shortner_3'))
+@Client.on_message(filters.command('set_shortner_3') & filters.group)
 async def set_shortner_3(c, m):
     await handle_shortner_command(c, m, 'shortner_three', 'api_three', 'New_Shortner_Set_For_3rd_Verify', SHORTENER_WEBSITE3, SHORTENER_API3)
 
-@Client.on_message(filters.command('set_log_channel'))
+@Client.on_message(filters.command('set_log_channel') & filters.group)
 async def set_log(client, message):
     grp_id = message.chat.id
     title = message.chat.title
@@ -1249,7 +1249,7 @@ async def set_log(client, message):
     await client.send_message(LOG_API_CHANNEL, log_message, disable_web_page_preview=True) 
 
 
-@Client.on_message(filters.command('set_time'))
+@Client.on_message(filters.command('set_time') & filters.group)
 async def set_time(client, message):
     chat_type = message.chat.type
     if chat_type not in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
@@ -1267,7 +1267,7 @@ async def set_time(client, message):
     await message.reply_text(f"<b>✅️ ꜱᴜᴄᴄᴇꜱꜱꜰᴜʟʟʏ ꜱᴇᴛ 2ɴᴅ ᴠᴇʀɪꜰʏ ᴛɪᴍᴇ ꜰᴏʀ {title}\n\nᴛɪᴍᴇ - <code>{time}</code></b>")
     await client.send_message(LOG_API_CHANNEL, f"#Set_2nd_Verify_Time\n\nɢʀᴏᴜᴘ ɴᴀᴍᴇ : {title}\n\nɢʀᴏᴜᴘ ɪᴅ : {grp_id}\n\nɪɴᴠɪᴛᴇ ʟɪɴᴋ : {invite_link}\n\nᴜᴘᴅᴀᴛᴇᴅ ʙʏ : {message.from_user.username}")
 
-@Client.on_message(filters.command('set_time_2'))
+@Client.on_message(filters.command('set_time_2') & filters.group)
 async def set_time_2(client, message):
     chat_type = message.chat.type
     if chat_type not in [enums.ChatType.GROUP, enums.ChatType.SUPERGROUP]:
