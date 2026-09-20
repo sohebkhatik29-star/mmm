@@ -81,6 +81,12 @@ async def pm_text(bot, message):
     content = message.text
     user = message.from_user.first_name
     user_id = message.from_user.id
+    try:
+        from plugins.admin_verify import AWAITING_INPUT as V_AWAITING
+        if user_id in V_AWAITING or (await db.get_admin_verify_state(user_id)):
+            return
+    except Exception:
+        pass
     if EMOJI_MODE:
         try:
             await message.react(emoji=random.choice(REACTIONS), big=True)

@@ -953,15 +953,11 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
             reply_markup=InlineKeyboardMarkup(btn),
             parse_mode=enums.ParseMode.HTML
         )
-        message.stop_propagation()
         return
 
     if not state:
         message.continue_propagation()
         return
-
-    # Critical: Stop propagation so pmfilter / search bot will NOT process this message!
-    message.stop_propagation()
 
     flow_type = state.get("type", "")
     step = state.get("step", 1)
