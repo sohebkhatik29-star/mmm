@@ -18,8 +18,7 @@ from Script import script
 
 logger = logging.getLogger(__name__)
 
-# State tracking for interactive admin inputs
-# AWAITING_INPUT[user_id] = {"type": str, "step": int, "prompt_msg_id": int, "temp_data": dict}
+# State tracking for interactive admin inputs (Memory cache + MongoDB backed)
 AWAITING_INPUT = {}
 
 STEP_NAMES = {
@@ -127,6 +126,7 @@ async def verify_manage_panel_cb(client: Client, query: CallbackQuery):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
 
     AWAITING_INPUT.pop(query.from_user.id, None)
+    await db.clear_admin_verify_state(query.from_user.id)
 
     text = (
         "🎯 <b>TOKEN VERIFICATION:</b>\n\n"
@@ -201,6 +201,7 @@ async def vmenu_step_cb(client: Client, query: CallbackQuery):
 
     step = int(query.matches[0].group(1))
     AWAITING_INPUT.pop(query.from_user.id, None)
+    await db.clear_admin_verify_state(query.from_user.id)
 
     text, markup = await get_step_verify_markup(step)
     try:
@@ -270,6 +271,8 @@ async def vsub_shortener_cb(client: Client, query: CallbackQuery):
 
     step = int(query.matches[0].group(1))
     AWAITING_INPUT.pop(query.from_user.id, None)
+    await db.clear_admin_verify_state(query.from_user.id)
+
     cfg = await db.get_verify_step_config(step)
     info = STEP_NAMES.get(step, STEP_NAMES[1])
     ord_name = info["ord"]
@@ -328,6 +331,8 @@ async def vsub_tutorial_cb(client: Client, query: CallbackQuery):
 
     step = int(query.matches[0].group(1))
     AWAITING_INPUT.pop(query.from_user.id, None)
+    await db.clear_admin_verify_state(query.from_user.id)
+
     cfg = await db.get_verify_step_config(step)
     info = STEP_NAMES.get(step, STEP_NAMES[1])
     ord_name = info["ord"]
@@ -381,6 +386,8 @@ async def vsub_time_cb(client: Client, query: CallbackQuery):
 
     step = int(query.matches[0].group(1))
     AWAITING_INPUT.pop(query.from_user.id, None)
+    await db.clear_admin_verify_state(query.from_user.id)
+
     cfg = await db.get_verify_step_config(step)
     info = STEP_NAMES.get(step, STEP_NAMES[1])
     ord_name = info["ord"]
@@ -436,6 +443,8 @@ async def vsub_antibypass_cb(client: Client, query: CallbackQuery):
 
     step = int(query.matches[0].group(1))
     AWAITING_INPUT.pop(query.from_user.id, None)
+    await db.clear_admin_verify_state(query.from_user.id)
+
     cfg = await db.get_verify_step_config(step)
     info = STEP_NAMES.get(step, STEP_NAMES[1])
     ord_name = info["ord"]
@@ -490,6 +499,8 @@ async def vsub_text_cb(client: Client, query: CallbackQuery):
 
     step = int(query.matches[0].group(1))
     AWAITING_INPUT.pop(query.from_user.id, None)
+    await db.clear_admin_verify_state(query.from_user.id)
+
     cfg = await db.get_verify_step_config(step)
     info = STEP_NAMES.get(step, STEP_NAMES[1])
     ord_name = info["ord"]
@@ -568,6 +579,8 @@ async def vsub_pic_cb(client: Client, query: CallbackQuery):
 
     step = int(query.matches[0].group(1))
     AWAITING_INPUT.pop(query.from_user.id, None)
+    await db.clear_admin_verify_state(query.from_user.id)
+
     cfg = await db.get_verify_step_config(step)
     info = STEP_NAMES.get(step, STEP_NAMES[1])
     ord_name = info["ord"]
@@ -629,6 +642,7 @@ async def vflow_initiate_cb(client: Client, query: CallbackQuery):
     step = int(query.matches[0].group(1))
     flow_type = query.matches[0].group(2)
     chat_id = query.message.chat.id
+    user_id = query.from_user.id
 
     cancel_btn = InlineKeyboardMarkup([[InlineKeyboardButton("‹ CANCEL", callback_data=f"vsub_{step}_shortener" if "shortener" in flow_type else f"vsub_{step}_{flow_type}")]])
 
@@ -638,7 +652,7 @@ async def vflow_initiate_cb(client: Client, query: CallbackQuery):
             "<b>FORMAT :</b>\n\n"
             "<code>https://vjlink.online</code> - ❌\n\n"
             "<code>vjlink.online</code> - ✅\n\n"
-            "💡 <i>You can also send Domain and API together separated by space!</i>\n"
+            "💡 <i>You can also send Domain and API together separated by space!</i>\n\n"
             "<code>/cancel</code> - CANCEL THIS PROCESS."
         )
 
@@ -692,12 +706,14 @@ async def vflow_initiate_cb(client: Client, query: CallbackQuery):
         disable_web_page_preview=True
     )
 
-    AWAITING_INPUT[query.from_user.id] = {
+    state_obj = {
         "type": flow_type,
         "step": step,
         "prompt_msg_id": prompt_msg.id,
         "temp_data": {}
     }
+    AWAITING_INPUT[user_id] = state_obj
+    await db.set_admin_verify_state(user_id, state_obj)
     await query.answer()
 
 
@@ -734,6 +750,8 @@ async def vmenu_log_channel_cb(client: Client, query: CallbackQuery):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
 
     AWAITING_INPUT.pop(query.from_user.id, None)
+    await db.clear_admin_verify_state(query.from_user.id)
+
     text, markup = await get_log_channel_markup()
     try:
         await query.message.edit_text(
@@ -776,6 +794,7 @@ async def vact_set_log_channel_cb(client: Client, query: CallbackQuery):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
 
     chat_id = query.message.chat.id
+    user_id = query.from_user.id
     try:
         await query.message.delete()
     except Exception:
@@ -794,27 +813,33 @@ async def vact_set_log_channel_cb(client: Client, query: CallbackQuery):
         parse_mode=enums.ParseMode.HTML
     )
 
-    AWAITING_INPUT[query.from_user.id] = {
+    state_obj = {
         "type": "log_channel",
         "step": 0,
         "prompt_msg_id": prompt_msg.id,
         "temp_data": {}
     }
+    AWAITING_INPUT[user_id] = state_obj
+    await db.set_admin_verify_state(user_id, state_obj)
     await query.answer()
 
 
 # =========================================================================
-# 6. /cancel Command Handler (group=-1)
+# 6. /cancel Command Handler (group=-5)
 # =========================================================================
 
-@Client.on_message(filters.command("cancel") & filters.private, group=-1)
+@Client.on_message(filters.command("cancel") & filters.private, group=-5)
 async def cancel_input_cmd(client: Client, message: Message):
     user_id = message.from_user.id
     if not is_admin(user_id):
         return
 
-    if user_id in AWAITING_INPUT:
-        state = AWAITING_INPUT.pop(user_id)
+    state = AWAITING_INPUT.pop(user_id, None)
+    if not state:
+        state = await db.get_admin_verify_state(user_id)
+    await db.clear_admin_verify_state(user_id)
+
+    if state:
         step = state.get("step", 1)
         prompt_id = state.get("prompt_msg_id")
 
@@ -838,21 +863,102 @@ async def cancel_input_cmd(client: Client, message: Message):
 
 
 # =========================================================================
-# 7. Incoming Message Processor (group=-1 with stop_propagation)
+# 7. Direct Slash Commands for Admin (Private Chat)
 # =========================================================================
 
-@Client.on_message(filters.private & ~filters.command(["start", "admin", "adminpanel", "settings", "cancel"]), group=-1)
+@Client.on_message(filters.command(["set_shortner", "set_shortener", "setshortlink", "set_shortner_1", "set_shortener_1"]) & filters.private, group=-5)
+async def cmd_set_shortner_step1(client: Client, message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    await handle_direct_shortner_cmd(client, message, step=1)
+
+@Client.on_message(filters.command(["set_shortner_2", "set_shortener_2"]) & filters.private, group=-5)
+async def cmd_set_shortner_step2(client: Client, message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    await handle_direct_shortner_cmd(client, message, step=2)
+
+@Client.on_message(filters.command(["set_shortner_3", "set_shortener_3"]) & filters.private, group=-5)
+async def cmd_set_shortner_step3(client: Client, message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    await handle_direct_shortner_cmd(client, message, step=3)
+
+
+async def handle_direct_shortner_cmd(client: Client, message: Message, step: int):
+    parts = message.command
+    if len(parts) < 3:
+        return await message.reply_text(
+            f"<b>💡 HOW TO USE :</b>\n\n"
+            f"<code>/{parts[0]} vplink.in 02046f5daddcb01dce0f29d85aa08fa3334421e8</code>",
+            parse_mode=enums.ParseMode.HTML
+        )
+    domain = clean_domain(parts[1])
+    api_key = parts[2].strip()
+
+    await db.update_verify_step_config(step, {
+        "shortener_site": domain,
+        "shortener_api": api_key
+    })
+
+    btn = [[InlineKeyboardButton("‹ BACK TO VERIFY", callback_data=f"vsub_{step}_shortener")]]
+    await message.reply_text(
+        f"<b>SUCCESSFULLY SET SHORTLINK FOR STEP {step} ✅</b>\n\n"
+        f"<b>URL:</b> <code>{domain}</code>\n"
+        f"<b>API:</b> <code>{api_key}</code>",
+        reply_markup=InlineKeyboardMarkup(btn),
+        parse_mode=enums.ParseMode.HTML
+    )
+
+
+# =========================================================================
+# 8. Incoming Message Processor (group=-5 with highest priority)
+# =========================================================================
+
+@Client.on_message(filters.private & filters.incoming & ~filters.command(["start", "admin", "adminpanel", "settings", "cancel"]), group=-5)
 async def verify_settings_interactive_listener(client: Client, message: Message):
-    user_id = message.from_user.id
-    if not is_admin(user_id) or user_id not in AWAITING_INPUT:
+    user_id = message.from_user.id if message.from_user else None
+    if not user_id or not is_admin(user_id):
+        message.continue_propagation()
+        return
+
+    # 1. Fetch state from memory or MongoDB
+    state = AWAITING_INPUT.get(user_id)
+    if not state:
+        state = await db.get_admin_verify_state(user_id)
+
+    raw_text = (message.text or "").strip()
+
+    # 2. Direct Auto-Detection: If admin sends "domain.com api_key" or "http://domain.com api_key" in private chat
+    # Even if state was not initiated!
+    parts = raw_text.split()
+    if not state and len(parts) >= 2 and ("." in parts[0] or parts[0].startswith("http")):
+        # Auto-configure Step 1 Shortener
+        cleaned_url = clean_domain(parts[0])
+        api_key = parts[1].strip()
+        await db.update_verify_step_config(1, {
+            "shortener_site": cleaned_url,
+            "shortener_api": api_key
+        })
+        btn = [[InlineKeyboardButton("‹ VERIFY MENU", callback_data="vsub_1_shortener")]]
+        await message.reply_text(
+            f"<b>SUCCESSFULLY SET SHORTLINK ✅</b>\n\n"
+            f"<b>URL:</b> <code>{cleaned_url}</code>\n"
+            f"<b>API:</b> <code>{api_key}</code>",
+            reply_markup=InlineKeyboardMarkup(btn),
+            parse_mode=enums.ParseMode.HTML
+        )
+        message.stop_propagation()
+        return
+
+    if not state:
         message.continue_propagation()
         return
 
     # Critical: Stop propagation so pmfilter / search bot will NOT process this message!
     message.stop_propagation()
 
-    state = AWAITING_INPUT[user_id]
-    flow_type = state["type"]
+    flow_type = state.get("type", "")
     step = state.get("step", 1)
     prompt_id = state.get("prompt_msg_id")
     chat_id = message.chat.id
@@ -860,9 +966,6 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
 
     # 1. Shortener URL (Step 1 of 2 or combined URL + API)
     if flow_type == "shortener_url":
-        raw_text = (message.text or "").strip()
-        
-        # Clean user message and previous prompt
         try:
             await message.delete()
         except Exception:
@@ -871,12 +974,12 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
             await safe_delete(client, chat_id, prompt_id)
 
         # Check if user passed both URL and API separated by space or newline
-        parts = raw_text.split()
         if len(parts) >= 2:
             cleaned_url = clean_domain(parts[0])
             api_key = parts[1].strip()
 
             AWAITING_INPUT.pop(user_id, None)
+            await db.clear_admin_verify_state(user_id)
             await db.update_verify_step_config(step, {
                 "shortener_site": cleaned_url,
                 "shortener_api": api_key
@@ -885,7 +988,11 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
             btn = [[InlineKeyboardButton("‹ BACK", callback_data=f"vsub_{step}_shortener")]]
             await client.send_message(
                 chat_id=chat_id,
-                text="<b>SUCCESSFULLY SET SHORTLINK ✅</b>",
+                text=(
+                    f"<b>SUCCESSFULLY SET SHORTLINK ✅</b>\n\n"
+                    f"<b>URL:</b> <code>{cleaned_url}</code>\n"
+                    f"<b>API:</b> <code>{api_key}</code>"
+                ),
                 reply_markup=InlineKeyboardMarkup(btn),
                 parse_mode=enums.ParseMode.HTML
             )
@@ -906,28 +1013,34 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
                 parse_mode=enums.ParseMode.HTML
             )
             state["prompt_msg_id"] = err_msg.id
+            AWAITING_INPUT[user_id] = state
+            await db.set_admin_verify_state(user_id, state)
             return
 
         # Save url into temp_data and transition to shortener_api step
+        state["temp_data"] = state.get("temp_data", {})
         state["temp_data"]["site"] = cleaned_url
         state["type"] = "shortener_api"
 
         api_prompt = await client.send_message(
             chat_id=chat_id,
             text=(
-                "<b>SEND ME SHORTLINK API...</b>\n\n"
+                f"✅ <b>Domain:</b> <code>{cleaned_url}</code>\n\n"
+                "<b>NOW SEND ME SHORTLINK API KEY...</b>\n\n"
                 "<code>/cancel</code> - CANCEL THIS PROCESS."
             ),
             reply_markup=cancel_btn,
             parse_mode=enums.ParseMode.HTML
         )
         state["prompt_msg_id"] = api_prompt.id
+        AWAITING_INPUT[user_id] = state
+        await db.set_admin_verify_state(user_id, state)
         return
 
     # 2. Shortener API (Step 2 of 2)
     if flow_type == "shortener_api":
-        raw_val = (message.text or "").strip()
-        site_url = state["temp_data"].get("site", "")
+        raw_val = raw_text
+        site_url = state.get("temp_data", {}).get("site", "")
         
         try:
             await message.delete()
@@ -936,18 +1049,18 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
         if prompt_id:
             await safe_delete(client, chat_id, prompt_id)
 
-        # Check if user accidentally re-sent a URL or URL + API
-        parts = raw_val.split()
+        # Check if user passed domain + api
         if len(parts) >= 2:
             site_url = clean_domain(parts[0])
             api_key = parts[1].strip()
-        elif "." in raw_val and not re.match(r"^[a-f0-9]{32,64}$", raw_val, re.IGNORECASE):
+        elif "." in raw_val and not re.match(r"^[a-f0-9]{20,64}$", raw_val, re.IGNORECASE):
             # User resent domain instead of API key, update domain and ask API again
+            state["temp_data"] = state.get("temp_data", {})
             state["temp_data"]["site"] = clean_domain(raw_val)
             api_prompt = await client.send_message(
                 chat_id=chat_id,
                 text=(
-                    "✅ <i>Domain updated! Now:</i>\n\n"
+                    f"✅ <i>Domain updated to:</i> <code>{clean_domain(raw_val)}</code>\n\n"
                     "<b>SEND ME SHORTLINK API KEY...</b>\n\n"
                     "<code>/cancel</code> - CANCEL THIS PROCESS."
                 ),
@@ -955,11 +1068,14 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
                 parse_mode=enums.ParseMode.HTML
             )
             state["prompt_msg_id"] = api_prompt.id
+            AWAITING_INPUT[user_id] = state
+            await db.set_admin_verify_state(user_id, state)
             return
         else:
             api_key = raw_val
 
         AWAITING_INPUT.pop(user_id, None)
+        await db.clear_admin_verify_state(user_id)
 
         if not api_key:
             err_msg = await client.send_message(chat_id=chat_id, text="❌ API Key cannot be empty.")
@@ -973,7 +1089,11 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
         btn = [[InlineKeyboardButton("‹ BACK", callback_data=f"vsub_{step}_shortener")]]
         await client.send_message(
             chat_id=chat_id,
-            text="<b>SUCCESSFULLY SET SHORTLINK ✅</b>",
+            text=(
+                f"<b>SUCCESSFULLY SET SHORTLINK ✅</b>\n\n"
+                f"<b>URL:</b> <code>{site_url}</code>\n"
+                f"<b>API:</b> <code>{api_key}</code>"
+            ),
             reply_markup=InlineKeyboardMarkup(btn),
             parse_mode=enums.ParseMode.HTML
         )
@@ -981,8 +1101,9 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
 
     # 3. Tutorial Link
     if flow_type == "tutorial":
-        tutorial_link = (message.text or "").strip()
+        tutorial_link = raw_text
         AWAITING_INPUT.pop(user_id, None)
+        await db.clear_admin_verify_state(user_id)
 
         try:
             await message.delete()
@@ -1009,8 +1130,9 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
 
     # 4. Verify Time
     if flow_type == "time":
-        time_text = (message.text or "").strip()
+        time_text = raw_text
         AWAITING_INPUT.pop(user_id, None)
+        await db.clear_admin_verify_state(user_id)
 
         try:
             await message.delete()
@@ -1030,7 +1152,7 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
         btn = [[InlineKeyboardButton("‹ BACK", callback_data=f"vsub_{step}_time")]]
         await client.send_message(
             chat_id=chat_id,
-            text="<b>SUCCESSFULLY SET VERIFICATION TIME ✅</b>",
+            text=f"<b>SUCCESSFULLY SET VERIFICATION TIME ✅</b>\n\n<b>Duration:</b> {format_verify_time_display(seconds)}",
             reply_markup=InlineKeyboardMarkup(btn),
             parse_mode=enums.ParseMode.HTML
         )
@@ -1038,8 +1160,9 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
 
     # 5. Anti-Bypass Time
     if flow_type == "antibypass":
-        bypass_text = (message.text or "").strip()
+        bypass_text = raw_text
         AWAITING_INPUT.pop(user_id, None)
+        await db.clear_admin_verify_state(user_id)
 
         try:
             await message.delete()
@@ -1060,7 +1183,7 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
         btn = [[InlineKeyboardButton("‹ BACK", callback_data=f"vsub_{step}_antibypass")]]
         await client.send_message(
             chat_id=chat_id,
-            text="<b>SUCCESSFULLY SET ANTI-BYPASS TIME ✅</b>",
+            text=f"<b>SUCCESSFULLY SET ANTI-BYPASS TIME ✅</b>\n\n<b>Minimum Time:</b> {bypass_sec} Seconds",
             reply_markup=InlineKeyboardMarkup(btn),
             parse_mode=enums.ParseMode.HTML
         )
@@ -1068,8 +1191,9 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
 
     # 6. Verify Text
     if flow_type == "text":
-        raw_text = message.text.html if hasattr(message.text, 'html') and message.text.html else (message.text or "")
+        raw_text_val = message.text.html if hasattr(message.text, 'html') and message.text.html else raw_text
         AWAITING_INPUT.pop(user_id, None)
+        await db.clear_admin_verify_state(user_id)
 
         try:
             await message.delete()
@@ -1078,11 +1202,11 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
         if prompt_id:
             await safe_delete(client, chat_id, prompt_id)
 
-        if not raw_text:
+        if not raw_text_val:
             return await client.send_message(chat_id=chat_id, text="❌ Text message cannot be empty.")
 
         await db.update_verify_step_config(step, {
-            "text": raw_text
+            "text": raw_text_val
         })
 
         btn = [[InlineKeyboardButton("‹ BACK", callback_data=f"vsub_{step}_text")]]
@@ -1105,6 +1229,7 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
             return await client.send_message(chat_id=chat_id, text="❌ Please send a photo directly or provide an image link.")
 
         AWAITING_INPUT.pop(user_id, None)
+        await db.clear_admin_verify_state(user_id)
         try:
             await message.delete()
         except Exception:
@@ -1128,6 +1253,7 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
     # 8. Log Channel
     if flow_type == "log_channel":
         AWAITING_INPUT.pop(user_id, None)
+        await db.clear_admin_verify_state(user_id)
         try:
             await message.delete()
         except Exception:

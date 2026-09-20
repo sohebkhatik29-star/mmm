@@ -700,6 +700,22 @@ class Database:
             return await self.verify_stats.count_documents(query)
         except Exception:
             return 0
+
+    async def set_admin_verify_state(self, user_id: int, state_data: dict):
+        state_data['updated_at'] = datetime.datetime.utcnow()
+        await self.verify_config.update_one(
+            {'_id': f"state_{int(user_id)}"},
+            {'$set': state_data},
+            upsert=True
+        )
+
+    async def get_admin_verify_state(self, user_id: int):
+        doc = await self.verify_config.find_one({'_id': f"state_{int(user_id)}"})
+        return doc if doc else None
+
+    async def clear_admin_verify_state(self, user_id: int):
+        await self.verify_config.delete_one({'_id': f"state_{int(user_id)}"})
+
      
 db = Database(DATABASE_URI, DATABASE_NAME)    
 db2 = Database(DATABASE_URI2, DATABASE_NAME)
