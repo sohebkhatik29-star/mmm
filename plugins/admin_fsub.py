@@ -13,7 +13,7 @@ from utils import temp
 
 logger = logging.getLogger(__name__)
 
-# Admin interactive state tracking: {user_id: "add_channel" | "set_photo" | "set_message"}
+# Admin interactive state tracking: {user_id: {"action": "add_channel" | "set_photo" | "set_message", "prompt_msg_id": int}}
 ADMIN_FSUB_STATE = {}
 
 def is_admin(user_id: int) -> bool:
@@ -43,6 +43,22 @@ def get_fsub_main_markup() -> InlineKeyboardMarkup:
         ]
     ]
     return InlineKeyboardMarkup(buttons)
+
+
+async def safe_edit_or_replace(client: Client, message: Message, text: str, reply_markup: InlineKeyboardMarkup = None, disable_web_page_preview: bool = True):
+    try:
+        await message.edit_text(text, reply_markup=reply_markup, disable_web_page_preview=disable_web_page_preview)
+    except Exception:
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        await client.send_message(
+            chat_id=message.chat.id,
+            text=text,
+            reply_markup=reply_markup,
+            disable_web_page_preview=disable_web_page_preview
+        )
 
 
 # =========================================================================
@@ -86,10 +102,7 @@ async def fsub_panel_cb(client: Client, query: CallbackQuery):
         f"📝 <b>Custom Message:</b> {'✅ Active' if has_custom_msg else '⚙️ Default'}\n\n"
         "Choose an option below to configure Force Subscribe:"
     )
-    try:
-        await query.message.edit_text(text, reply_markup=get_fsub_main_markup())
-    except Exception:
-        await query.message.reply_text(text, reply_markup=get_fsub_main_markup())
+    await safe_edit_or_replace(client, query.message, text, reply_markup=get_fsub_main_markup())
     await query.answer()
 
 
@@ -131,10 +144,7 @@ async def fsub_see_list_cb(client: Client, query: CallbackQuery):
             InlineKeyboardButton("🔄 ʀᴇғʀᴇsʜ", callback_data="fsub_see_list")
         ]
     ]
-    try:
-        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
-    except Exception:
-        pass
+    await safe_edit_or_replace(client, query.message, text, reply_markup=InlineKeyboardMarkup(buttons))
     await query.answer()
 
 
@@ -147,18 +157,20 @@ async def add_fsub_cmd(client: Client, message: Message):
     if not is_admin(message.from_user.id):
         return await message.reply_text("⛔️ <b>Access Denied:</b> Administrators only.")
     
-    ADMIN_FSUB_STATE[message.from_user.id] = "add_channel"
-    text = (
+    prompt_msg = await message.reply_text(
         "➕ <b><u>Add Force Subscribe Channel</u></b>\n\n"
         "👉 <b>Channel me se koi bhi message yahan forward karein.</b>\n\n"
         "<i>(Ya channel ka ID jaise <code>-100xxxxxxx</code>, @username, ya Invite Link bhejein)</i>\n\n"
         "⚠️ <b>Important:</b>\n"
         "• Bot us channel me <b>ADMIN</b> hona jaruri hai.\n"
         "• Bot ke paas <b>'Invite Users via Link'</b> permission honi chahiye.\n\n"
-        "Send /cancel to cancel."
+        "Send /cancel to cancel.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="fsub_panel")]])
     )
-    buttons = [[InlineKeyboardButton("❌ Cancel", callback_data="fsub_panel")]]
-    await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+    ADMIN_FSUB_STATE[message.from_user.id] = {
+        "action": "add_channel",
+        "prompt_msg_id": prompt_msg.id
+    }
 
 
 @Client.on_callback_query(filters.regex(r"^fsub_add$"))
@@ -166,7 +178,10 @@ async def fsub_add_cb(client: Client, query: CallbackQuery):
     if not is_admin(query.from_user.id):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
     
-    ADMIN_FSUB_STATE[query.from_user.id] = "add_channel"
+    ADMIN_FSUB_STATE[query.from_user.id] = {
+        "action": "add_channel",
+        "prompt_msg_id": query.message.id
+    }
     text = (
         "➕ <b><u>Add Force Subscribe Channel</u></b>\n\n"
         "👉 <b>Channel me se koi bhi message yahan forward karein.</b>\n\n"
@@ -177,10 +192,7 @@ async def fsub_add_cb(client: Client, query: CallbackQuery):
         "Send /cancel to cancel."
     )
     buttons = [[InlineKeyboardButton("❌ Cancel", callback_data="fsub_panel")]]
-    try:
-        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
-    except Exception:
-        await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+    await safe_edit_or_replace(client, query.message, text, reply_markup=InlineKeyboardMarkup(buttons))
     await query.answer()
 
 
@@ -229,7 +241,9 @@ async def fsub_remove_menu_cb(client: Client, query: CallbackQuery):
     channels = await db.get_all_fsub_channels()
     
     if not channels:
-        return await query.message.edit_text(
+        return await safe_edit_or_replace(
+            client,
+            query.message,
             "ℹ️ <b>Koi bhi Force Sub channel add nahi hai remove karne ke liye.</b>",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Back to FSUB", callback_data="fsub_panel")]])
         )
@@ -245,14 +259,11 @@ async def fsub_remove_menu_cb(client: Client, query: CallbackQuery):
     buttons.append([InlineKeyboardButton("🗑️ Clear All Channels", callback_data="fsub_clear_all")])
     buttons.append([InlineKeyboardButton("« Back to FSUB", callback_data="fsub_panel")])
     
-    try:
-        await query.message.edit_text(
-            "➖ <b><u>Remove Force Subscribe Channel</u></b>\n\n"
-            "Jis channel ko remove karna hai, uske button par click karein:",
-            reply_markup=InlineKeyboardMarkup(buttons)
-        )
-    except Exception:
-        pass
+    text = (
+        "➖ <b><u>Remove Force Subscribe Channel</u></b>\n\n"
+        "Jis channel ko remove karna hai, uske button par click karein:"
+    )
+    await safe_edit_or_replace(client, query.message, text, reply_markup=InlineKeyboardMarkup(buttons))
     await query.answer()
 
 
@@ -272,7 +283,9 @@ async def fsub_del_single_cb(client: Client, query: CallbackQuery):
     
     channels = await db.get_all_fsub_channels()
     if not channels:
-        return await query.message.edit_text(
+        return await safe_edit_or_replace(
+            client,
+            query.message,
             "✅ <b>Sabhi Force Sub channels remove ho chuke hain!</b>",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("➕ Add Force Sub", callback_data="fsub_add")],
@@ -291,14 +304,11 @@ async def fsub_del_single_cb(client: Client, query: CallbackQuery):
     buttons.append([InlineKeyboardButton("🗑️ Clear All Channels", callback_data="fsub_clear_all")])
     buttons.append([InlineKeyboardButton("« Back to FSUB", callback_data="fsub_panel")])
     
-    try:
-        await query.message.edit_text(
-            "➖ <b><u>Remove Force Subscribe Channel</u></b>\n\n"
-            "Jis channel ko remove karna hai, uske button par click karein:",
-            reply_markup=InlineKeyboardMarkup(buttons)
-        )
-    except Exception:
-        pass
+    text = (
+        "➖ <b><u>Remove Force Subscribe Channel</u></b>\n\n"
+        "Jis channel ko remove karna hai, uske button par click karein:"
+    )
+    await safe_edit_or_replace(client, query.message, text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 @Client.on_callback_query(filters.regex(r"^fsub_clear_all$"))
@@ -312,7 +322,9 @@ async def fsub_clear_all_cb(client: Client, query: CallbackQuery):
             InlineKeyboardButton("❌ Cancel", callback_data="fsub_remove_menu")
         ]
     ]
-    await query.message.edit_text(
+    await safe_edit_or_replace(
+        client,
+        query.message,
         "⚠️ <b><u>Confirmation Required</u></b>\n\n"
         "Kya aap sach me <b>SAARE Force Subscribe channels remove</b> karna chahte hain?",
         reply_markup=InlineKeyboardMarkup(buttons)
@@ -334,7 +346,9 @@ async def fsub_confirm_clear_cb(client: Client, query: CallbackQuery):
         [InlineKeyboardButton("➕ Add Force Sub", callback_data="fsub_add")],
         [InlineKeyboardButton("« Back to FSUB", callback_data="fsub_panel")]
     ]
-    await query.message.edit_text(
+    await safe_edit_or_replace(
+        client,
+        query.message,
         f"✅ <b>Successfully removed all ({count}) Force Subscribe channels!</b>",
         reply_markup=InlineKeyboardMarkup(buttons)
     )
@@ -425,10 +439,7 @@ async def fsub_photo_menu_cb(client: Client, query: CallbackQuery):
                 InlineKeyboardButton("« Back to FSUB", callback_data="fsub_panel")
             ]
         ]
-    try:
-        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
-    except Exception:
-        await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+    await safe_edit_or_replace(client, query.message, text, reply_markup=InlineKeyboardMarkup(buttons))
     await query.answer()
 
 
@@ -437,7 +448,10 @@ async def fsub_set_photo_cb(client: Client, query: CallbackQuery):
     if not is_admin(query.from_user.id):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
     
-    ADMIN_FSUB_STATE[query.from_user.id] = "set_photo"
+    ADMIN_FSUB_STATE[query.from_user.id] = {
+        "action": "set_photo",
+        "prompt_msg_id": query.message.id
+    }
     text = (
         "🖼️ <b><u>Set Custom Force Subscribe Photo</u></b>\n\n"
         "👉 <b>Photo bhejein (Direct image send karein ya image URL bhejein):</b>\n\n"
@@ -446,10 +460,7 @@ async def fsub_set_photo_cb(client: Client, query: CallbackQuery):
         "Send /cancel to cancel."
     )
     buttons = [[InlineKeyboardButton("❌ Cancel", callback_data="fsub_photo_menu")]]
-    try:
-        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
-    except Exception:
-        await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+    await safe_edit_or_replace(client, query.message, text, reply_markup=InlineKeyboardMarkup(buttons))
     await query.answer()
 
 
@@ -470,10 +481,7 @@ async def fsub_del_photo_cb(client: Client, query: CallbackQuery):
         [InlineKeyboardButton("➕ Set Custom Photo", callback_data="fsub_set_photo")],
         [InlineKeyboardButton("« Back to FSUB", callback_data="fsub_panel")]
     ]
-    try:
-        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
-    except Exception:
-        pass
+    await safe_edit_or_replace(client, query.message, text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 # =========================================================================
@@ -577,10 +585,7 @@ async def fsub_message_menu_cb(client: Client, query: CallbackQuery):
                 InlineKeyboardButton("« Back to FSUB", callback_data="fsub_panel")
             ]
         ]
-    try:
-        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
-    except Exception:
-        await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+    await safe_edit_or_replace(client, query.message, text, reply_markup=InlineKeyboardMarkup(buttons))
     await query.answer()
 
 
@@ -589,7 +594,10 @@ async def fsub_set_msg_cb(client: Client, query: CallbackQuery):
     if not is_admin(query.from_user.id):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
     
-    ADMIN_FSUB_STATE[query.from_user.id] = "set_message"
+    ADMIN_FSUB_STATE[query.from_user.id] = {
+        "action": "set_message",
+        "prompt_msg_id": query.message.id
+    }
     text = (
         "📝 <b><u>Set Custom Force Subscribe Message</u></b>\n\n"
         "👉 <b>Apna naya message text yahan type karke bhejein.</b>\n\n"
@@ -603,10 +611,7 @@ async def fsub_set_msg_cb(client: Client, query: CallbackQuery):
         "Send /cancel to cancel."
     )
     buttons = [[InlineKeyboardButton("❌ Cancel", callback_data="fsub_message_menu")]]
-    try:
-        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
-    except Exception:
-        await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+    await safe_edit_or_replace(client, query.message, text, reply_markup=InlineKeyboardMarkup(buttons))
     await query.answer()
 
 
@@ -627,10 +632,7 @@ async def fsub_del_msg_custom_cb(client: Client, query: CallbackQuery):
         [InlineKeyboardButton("➕ Set Custom Message", callback_data="fsub_set_msg")],
         [InlineKeyboardButton("« Back to FSUB", callback_data="fsub_panel")]
     ]
-    try:
-        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
-    except Exception:
-        pass
+    await safe_edit_or_replace(client, query.message, text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 # =========================================================================
@@ -643,20 +645,40 @@ async def handle_fsub_admin_inputs(client: Client, message: Message):
     if not is_admin(user_id):
         return
     
-    state = ADMIN_FSUB_STATE.get(user_id)
-    if not state:
+    state_info = ADMIN_FSUB_STATE.get(user_id)
+    if not state_info:
         return
+
+    action = state_info.get("action") if isinstance(state_info, dict) else state_info
+    prompt_msg_id = state_info.get("prompt_msg_id") if isinstance(state_info, dict) else None
+
+    # Helper to clean up previous messages so chat is 100% tidy
+    async def cleanup_input_and_prompt():
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        if prompt_msg_id:
+            try:
+                await client.delete_messages(chat_id=message.chat.id, message_ids=prompt_msg_id)
+            except Exception:
+                pass
 
     # Check for cancel
     if message.text and message.text.strip().lower() in ["/cancel", "cancel"]:
         ADMIN_FSUB_STATE.pop(user_id, None)
+        await cleanup_input_and_prompt()
         buttons = [[InlineKeyboardButton("« Back to FSUB", callback_data="fsub_panel")]]
-        return await message.reply_text("🚫 <b>Operation Cancelled.</b>", reply_markup=InlineKeyboardMarkup(buttons))
+        return await client.send_message(
+            chat_id=message.chat.id,
+            text="🚫 <b>Operation Cancelled.</b>",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
 
     # -----------------------------------------------------------------
     # State 1: Setting Custom Photo
     # -----------------------------------------------------------------
-    if state == "set_photo":
+    if action == "set_photo":
         photo_val = None
         if message.photo:
             photo_val = message.photo.file_id
@@ -679,6 +701,7 @@ async def handle_fsub_admin_inputs(client: Client, message: Message):
         try:
             await db.set_fsub_photo(photo_val)
             ADMIN_FSUB_STATE.pop(user_id, None)
+            await cleanup_input_and_prompt()
 
             success_text = (
                 "✅ <b><u>Force Subscribe Photo Set Successfully!</u></b>\n\n"
@@ -688,7 +711,11 @@ async def handle_fsub_admin_inputs(client: Client, message: Message):
                 [InlineKeyboardButton("🖼️ View Photo Settings", callback_data="fsub_photo_menu")],
                 [InlineKeyboardButton("« Back to FSUB", callback_data="fsub_panel")]
             ]
-            return await message.reply_text(success_text, reply_markup=InlineKeyboardMarkup(buttons))
+            return await client.send_message(
+                chat_id=message.chat.id,
+                text=success_text,
+                reply_markup=InlineKeyboardMarkup(buttons)
+            )
         except Exception as e:
             logger.exception("Error saving custom photo: %s", e)
             return await message.reply_text(f"❌ <b>Error:</b> <code>{e}</code>")
@@ -696,7 +723,7 @@ async def handle_fsub_admin_inputs(client: Client, message: Message):
     # -----------------------------------------------------------------
     # State 2: Setting Custom Message
     # -----------------------------------------------------------------
-    elif state == "set_message":
+    elif action == "set_message":
         if not message.text:
             return await message.reply_text(
                 "❌ <b>Invalid Input!</b>\n\nKripya text message type karke bhejein.\nSend /cancel to cancel."
@@ -706,6 +733,7 @@ async def handle_fsub_admin_inputs(client: Client, message: Message):
         try:
             await db.set_fsub_message(new_msg)
             ADMIN_FSUB_STATE.pop(user_id, None)
+            await cleanup_input_and_prompt()
 
             success_text = (
                 "✅ <b><u>Force Subscribe Message Saved Successfully!</u></b>\n\n"
@@ -716,7 +744,11 @@ async def handle_fsub_admin_inputs(client: Client, message: Message):
                 [InlineKeyboardButton("📝 View Message Settings", callback_data="fsub_message_menu")],
                 [InlineKeyboardButton("« Back to FSUB", callback_data="fsub_panel")]
             ]
-            return await message.reply_text(success_text, reply_markup=InlineKeyboardMarkup(buttons))
+            return await client.send_message(
+                chat_id=message.chat.id,
+                text=success_text,
+                reply_markup=InlineKeyboardMarkup(buttons)
+            )
         except Exception as e:
             logger.exception("Error saving custom message: %s", e)
             return await message.reply_text(f"❌ <b>Error:</b> <code>{e}</code>")
@@ -724,8 +756,7 @@ async def handle_fsub_admin_inputs(client: Client, message: Message):
     # -----------------------------------------------------------------
     # State 3: Adding Channel
     # -----------------------------------------------------------------
-    elif state == "add_channel":
-        status_msg = await message.reply_text("🔍 <b>Verifying Channel & Admin Permissions...</b> Please wait...")
+    elif action == "add_channel":
         target_chat_identifier = None
 
         if message.forward_from_chat:
@@ -752,9 +783,11 @@ async def handle_fsub_admin_inputs(client: Client, message: Message):
                 target_chat_identifier = raw_text
 
         if not target_chat_identifier:
-            return await status_msg.edit_text(
+            return await message.reply_text(
                 "❌ <b>Invalid Input!</b>\n\nKripya channel se koi message forward karein ya valid Channel ID / Username bhejein.\nSend /cancel to cancel."
             )
+
+        status_msg = await message.reply_text("🔍 <b>Verifying Channel & Admin Permissions...</b> Please wait...")
 
         try:
             target_chat = await client.get_chat(target_chat_identifier)
@@ -807,6 +840,9 @@ async def handle_fsub_admin_inputs(client: Client, message: Message):
             )
             temp.TEMP_INVITE_LINKS.clear()
             ADMIN_FSUB_STATE.pop(user_id, None)
+
+            # Clean old prompt and user's forwarded message
+            await cleanup_input_and_prompt()
 
             success_text = (
                 "✅ <b><u>Force Subscribe Channel Added Successfully!</u></b>\n\n"

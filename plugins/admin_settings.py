@@ -69,7 +69,11 @@ async def admin_settings_cb(client: Client, query: CallbackQuery):
     try:
         await query.message.edit_text(text, reply_markup=get_admin_panel_markup())
     except Exception:
-        await query.message.reply_text(text, reply_markup=get_admin_panel_markup())
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        await client.send_message(chat_id=query.message.chat.id, text=text, reply_markup=get_admin_panel_markup())
     await query.answer()
 
 

@@ -12,7 +12,7 @@ from utils import temp
 
 logger = logging.getLogger(__name__)
 
-# State tracking for admin setting custom caption
+# State tracking for admin setting custom caption: {user_id: {"state": True, "prompt_msg_id": int}}
 AWAITING_CAPTION = {}
 
 def is_admin(user_id: int) -> bool:
@@ -41,6 +41,22 @@ def get_caption_main_markup(has_custom: bool = False) -> InlineKeyboardMarkup:
     # Remove empty rows if any
     buttons = [row for row in buttons if row]
     return InlineKeyboardMarkup(buttons)
+
+
+async def safe_edit_or_replace(client: Client, message: Message, text: str, reply_markup: InlineKeyboardMarkup = None, disable_web_page_preview: bool = True):
+    try:
+        await message.edit_text(text, reply_markup=reply_markup, disable_web_page_preview=disable_web_page_preview)
+    except Exception:
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        await client.send_message(
+            chat_id=message.chat.id,
+            text=text,
+            reply_markup=reply_markup,
+            disable_web_page_preview=disable_web_page_preview
+        )
 
 
 # =========================================================================
@@ -84,10 +100,7 @@ async def caption_panel_cb(client: Client, query: CallbackQuery):
         "• <b>See Caption:</b> Current caption & preview dekhein\n"
         "• <b>Delete Caption:</b> Custom caption hata kar default par reset karein"
     )
-    try:
-        await query.message.edit_text(text, reply_markup=get_caption_main_markup(has_custom))
-    except Exception:
-        await query.message.reply_text(text, reply_markup=get_caption_main_markup(has_custom))
+    await safe_edit_or_replace(client, query.message, text, reply_markup=get_caption_main_markup(has_custom))
     await query.answer()
 
 
@@ -188,10 +201,7 @@ async def see_caption_cb(client: Client, query: CallbackQuery):
         InlineKeyboardButton("« ᴀᴅᴍɪɴ ᴘᴀɴᴇʟ", callback_data="admin_settings")
     ])
 
-    try:
-        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
-    except Exception:
-        await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+    await safe_edit_or_replace(client, query.message, text, reply_markup=InlineKeyboardMarkup(buttons))
     await query.answer()
 
 
@@ -204,7 +214,6 @@ async def set_caption_cmd(client: Client, message: Message):
     if not is_admin(message.from_user.id):
         return await message.reply_text("⛔️ <b>Access Denied:</b> Administrators only.")
     
-    AWAITING_CAPTION[message.from_user.id] = True
     text = (
         "➕ <b><u>Set Custom File Caption (Captain)</u></b>\n\n"
         "👉 <b>Apna naya caption template yahan type karke bhejein:</b>\n\n"
@@ -217,7 +226,11 @@ async def set_caption_cmd(client: Client, message: Message):
         "Send /cancel to cancel."
     )
     buttons = [[InlineKeyboardButton("❌ Cancel", callback_data="caption_panel")]]
-    await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+    prompt_msg = await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+    AWAITING_CAPTION[message.from_user.id] = {
+        "state": True,
+        "prompt_msg_id": prompt_msg.id
+    }
 
 
 @Client.on_callback_query(filters.regex(r"^caption_set$"))
@@ -225,7 +238,10 @@ async def set_caption_cb(client: Client, query: CallbackQuery):
     if not is_admin(query.from_user.id):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
     
-    AWAITING_CAPTION[query.from_user.id] = True
+    AWAITING_CAPTION[query.from_user.id] = {
+        "state": True,
+        "prompt_msg_id": query.message.id
+    }
     text = (
         "➕ <b><u>Set Custom File Caption (Captain)</u></b>\n\n"
         "👉 <b>Apna naya caption template yahan type karke bhejein:</b>\n\n"
@@ -238,10 +254,7 @@ async def set_caption_cb(client: Client, query: CallbackQuery):
         "Send /cancel to cancel."
     )
     buttons = [[InlineKeyboardButton("❌ Cancel", callback_data="caption_panel")]]
-    try:
-        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
-    except Exception:
-        await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+    await safe_edit_or_replace(client, query.message, text, reply_markup=InlineKeyboardMarkup(buttons))
     await query.answer()
 
 
@@ -251,14 +264,34 @@ async def handle_caption_admin_input(client: Client, message: Message):
     if not is_admin(user_id):
         return
     
-    if not AWAITING_CAPTION.get(user_id):
+    caption_data = AWAITING_CAPTION.get(user_id)
+    if not caption_data:
         return
+
+    prompt_msg_id = caption_data.get("prompt_msg_id") if isinstance(caption_data, dict) else None
+
+    # Helper to clean up previous input and prompt message
+    async def cleanup_input_and_prompt():
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        if prompt_msg_id:
+            try:
+                await client.delete_messages(chat_id=message.chat.id, message_ids=prompt_msg_id)
+            except Exception:
+                pass
 
     # Check for cancel
     if message.text and message.text.strip().lower() in ["/cancel", "cancel"]:
         AWAITING_CAPTION.pop(user_id, None)
+        await cleanup_input_and_prompt()
         buttons = [[InlineKeyboardButton("« Back to Caption", callback_data="caption_panel")]]
-        return await message.reply_text("🚫 <b>Caption editing cancelled.</b>", reply_markup=InlineKeyboardMarkup(buttons))
+        return await client.send_message(
+            chat_id=message.chat.id,
+            text="🚫 <b>Caption editing cancelled.</b>",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
 
     if not message.text:
         return await message.reply_text("❌ <b>Invalid Input!</b> Kripya text template bhejein.\nSend /cancel to cancel.")
@@ -269,6 +302,8 @@ async def handle_caption_admin_input(client: Client, message: Message):
         # Clear settings cache so new caption applies immediately everywhere
         temp.SETTINGS.clear()
         AWAITING_CAPTION.pop(user_id, None)
+
+        await cleanup_input_and_prompt()
 
         sample_name = "Avengers Endgame (2019) 1080p.mkv"
         sample_size = "2.45 GB"
@@ -298,7 +333,11 @@ async def handle_caption_admin_input(client: Client, message: Message):
                 InlineKeyboardButton("« Admin Panel", callback_data="admin_settings")
             ]
         ]
-        await message.reply_text(success_text, reply_markup=InlineKeyboardMarkup(buttons))
+        await client.send_message(
+            chat_id=message.chat.id,
+            text=success_text,
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
     except Exception as e:
         logger.exception("Error saving custom caption: %s", e)
         await message.reply_text(f"❌ <b>Database Error:</b> <code>{e}</code>")
@@ -338,11 +377,11 @@ async def caption_del_confirm_cb(client: Client, query: CallbackQuery):
             InlineKeyboardButton("❌ Cancel", callback_data="caption_panel")
         ]
     ]
-    await query.message.edit_text(
+    text = (
         "⚠️ <b><u>Confirmation Required</u></b>\n\n"
-        "Kya aap sach me <b>Custom Caption ko delete</b> karke default par reset karna chahte hain?",
-        reply_markup=InlineKeyboardMarkup(buttons)
+        "Kya aap sach me <b>Custom Caption ko delete</b> karke default par reset karna chahte hain?"
     )
+    await safe_edit_or_replace(client, query.message, text, reply_markup=InlineKeyboardMarkup(buttons))
     await query.answer()
 
 
@@ -366,7 +405,4 @@ async def caption_del_yes_cb(client: Client, query: CallbackQuery):
             InlineKeyboardButton("« Admin Panel", callback_data="admin_settings")
         ]
     ]
-    try:
-        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(buttons))
-    except Exception:
-        pass
+    await safe_edit_or_replace(client, query.message, text, reply_markup=InlineKeyboardMarkup(buttons))
