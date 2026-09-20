@@ -22,7 +22,7 @@ from Script import script
 logger = logging.getLogger(__name__)
 
 # State tracking for interactive admin inputs
-# AWAITING_INPUT[user_id] = {"type": "shortener_url"|"shortener_api"|"tutorial"|"time"|"antibypass"|"text"|"pic"|"log_channel", "step": int, "temp_data": dict}
+# AWAITING_INPUT[user_id] = {"type": str, "step": int, "prompt_msg_id": int, "temp_data": dict}
 AWAITING_INPUT = {}
 
 STEP_NAMES = {
@@ -74,9 +74,25 @@ def parse_time_to_seconds(text_val: str) -> int:
     if text_val.endswith("s") or "sec" in text_val:
         num = re.findall(r"\d+", text_val)
         return int(num[0]) if num else 60
-    # Raw numeric
     num = re.findall(r"\d+", text_val)
-    return int(num[0]) if num else 1200
+    return int(num[0]) if num else 86400
+
+
+def clean_domain(raw: str) -> str:
+    cleaned = raw.strip()
+    cleaned = cleaned.replace("https://", "").replace("http://", "")
+    if "/" in cleaned:
+        cleaned = cleaned.split("/")[0]
+    return cleaned.strip()
+
+
+async def safe_delete(client: Client, chat_id: int, message_id: int):
+    if not message_id:
+        return
+    try:
+        await client.delete_messages(chat_id=chat_id, message_ids=[message_id])
+    except Exception:
+        pass
 
 
 # =========================================================================
@@ -116,12 +132,20 @@ async def verify_manage_panel_cb(client: Client, query: CallbackQuery):
         "❝ <b>TOKEN VERIFICATION:</b> A SYSTEM REQUIRING USERS TO WATCH ADS OR SOLVE CAPTCHAS ON EXTERNAL SITES TO UNLOCK BOT ACCESS FOR TIME THAT BOT OWNER SET AND ALSO ALLOWING BOT OWNERS TO EARN MONEY WHENEVER A USER CLICKS. ❞"
     )
 
-    await query.message.edit_text(
-        text=text,
-        reply_markup=get_main_verify_markup(),
-        parse_mode=enums.ParseMode.HTML,
-        disable_web_page_preview=True
-    )
+    try:
+        await query.message.edit_text(
+            text=text,
+            reply_markup=get_main_verify_markup(),
+            parse_mode=enums.ParseMode.HTML,
+            disable_web_page_preview=True
+        )
+    except Exception:
+        await query.message.reply_text(
+            text=text,
+            reply_markup=get_main_verify_markup(),
+            parse_mode=enums.ParseMode.HTML,
+            disable_web_page_preview=True
+        )
 
 
 # =========================================================================
@@ -178,12 +202,20 @@ async def vmenu_step_cb(client: Client, query: CallbackQuery):
     AWAITING_INPUT.pop(query.from_user.id, None)
 
     text, markup = await get_step_verify_markup(step)
-    await query.message.edit_text(
-        text=text,
-        reply_markup=markup,
-        parse_mode=enums.ParseMode.HTML,
-        disable_web_page_preview=True
-    )
+    try:
+        await query.message.edit_text(
+            text=text,
+            reply_markup=markup,
+            parse_mode=enums.ParseMode.HTML,
+            disable_web_page_preview=True
+        )
+    except Exception:
+        await query.message.reply_text(
+            text=text,
+            reply_markup=markup,
+            parse_mode=enums.ParseMode.HTML,
+            disable_web_page_preview=True
+        )
 
 
 @Client.on_callback_query(filters.regex(r"^vtoggle_(\d+)$"))
@@ -200,12 +232,15 @@ async def vtoggle_step_cb(client: Client, query: CallbackQuery):
     await query.answer(f"Step {step} verification is now {status_str}!", show_alert=False)
 
     text, markup = await get_step_verify_markup(step)
-    await query.message.edit_text(
-        text=text,
-        reply_markup=markup,
-        parse_mode=enums.ParseMode.HTML,
-        disable_web_page_preview=True
-    )
+    try:
+        await query.message.edit_text(
+            text=text,
+            reply_markup=markup,
+            parse_mode=enums.ParseMode.HTML,
+            disable_web_page_preview=True
+        )
+    except Exception:
+        pass
 
 
 @Client.on_callback_query(filters.regex(r"^vact_(\d+)_stats$"))
@@ -254,12 +289,20 @@ async def vsub_shortener_cb(client: Client, query: CallbackQuery):
         [InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}")]
     ]
 
-    await query.message.edit_text(
-        text=text,
-        reply_markup=InlineKeyboardMarkup(buttons),
-        parse_mode=enums.ParseMode.HTML,
-        disable_web_page_preview=True
-    )
+    try:
+        await query.message.edit_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML,
+            disable_web_page_preview=True
+        )
+    except Exception:
+        await query.message.reply_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML,
+            disable_web_page_preview=True
+        )
 
 
 @Client.on_callback_query(filters.regex(r"^vdel_(\d+)_shortener$"))
@@ -302,12 +345,20 @@ async def vsub_tutorial_cb(client: Client, query: CallbackQuery):
         [InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}")]
     ]
 
-    await query.message.edit_text(
-        text=text,
-        reply_markup=InlineKeyboardMarkup(buttons),
-        parse_mode=enums.ParseMode.HTML,
-        disable_web_page_preview=True
-    )
+    try:
+        await query.message.edit_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML,
+            disable_web_page_preview=True
+        )
+    except Exception:
+        await query.message.reply_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML,
+            disable_web_page_preview=True
+        )
 
 
 @Client.on_callback_query(filters.regex(r"^vdel_(\d+)_tutorial$"))
@@ -348,12 +399,20 @@ async def vsub_time_cb(client: Client, query: CallbackQuery):
         [InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}")]
     ]
 
-    await query.message.edit_text(
-        text=text,
-        reply_markup=InlineKeyboardMarkup(buttons),
-        parse_mode=enums.ParseMode.HTML,
-        disable_web_page_preview=True
-    )
+    try:
+        await query.message.edit_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML,
+            disable_web_page_preview=True
+        )
+    except Exception:
+        await query.message.reply_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML,
+            disable_web_page_preview=True
+        )
 
 
 @Client.on_callback_query(filters.regex(r"^vdel_(\d+)_time$"))
@@ -395,12 +454,20 @@ async def vsub_antibypass_cb(client: Client, query: CallbackQuery):
         [InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}")]
     ]
 
-    await query.message.edit_text(
-        text=text,
-        reply_markup=InlineKeyboardMarkup(buttons),
-        parse_mode=enums.ParseMode.HTML,
-        disable_web_page_preview=True
-    )
+    try:
+        await query.message.edit_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML,
+            disable_web_page_preview=True
+        )
+    except Exception:
+        await query.message.reply_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML,
+            disable_web_page_preview=True
+        )
 
 
 @Client.on_callback_query(filters.regex(r"^vdel_(\d+)_antibypass$"))
@@ -442,12 +509,20 @@ async def vsub_text_cb(client: Client, query: CallbackQuery):
         [InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}")]
     ]
 
-    await query.message.edit_text(
-        text=text,
-        reply_markup=InlineKeyboardMarkup(buttons),
-        parse_mode=enums.ParseMode.HTML,
-        disable_web_page_preview=True
-    )
+    try:
+        await query.message.edit_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML,
+            disable_web_page_preview=True
+        )
+    except Exception:
+        await query.message.reply_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML,
+            disable_web_page_preview=True
+        )
 
 
 @Client.on_callback_query(filters.regex(r"^vsee_(\d+)_text$"))
@@ -514,12 +589,20 @@ async def vsub_pic_cb(client: Client, query: CallbackQuery):
         [InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}")]
     ]
 
-    await query.message.edit_text(
-        text=text,
-        reply_markup=InlineKeyboardMarkup(buttons),
-        parse_mode=enums.ParseMode.HTML,
-        disable_web_page_preview=True
-    )
+    try:
+        await query.message.edit_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML,
+            disable_web_page_preview=True
+        )
+    except Exception:
+        await query.message.reply_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=enums.ParseMode.HTML,
+            disable_web_page_preview=True
+        )
 
 
 @Client.on_callback_query(filters.regex(r"^vdel_(\d+)_pic$"))
@@ -544,12 +627,7 @@ async def vflow_initiate_cb(client: Client, query: CallbackQuery):
 
     step = int(query.matches[0].group(1))
     flow_type = query.matches[0].group(2)
-
-    AWAITING_INPUT[query.from_user.id] = {
-        "type": flow_type,
-        "step": step,
-        "temp_data": {}
-    }
+    chat_id = query.message.chat.id
 
     if flow_type == "shortener_url":
         text = (
@@ -596,11 +674,25 @@ async def vflow_initiate_cb(client: Client, query: CallbackQuery):
             "<code>/cancel</code> - CANCEL THIS PROCESS."
         )
 
-    await query.message.reply_text(
+    # Delete previous menu message to prevent stacking
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+
+    prompt_msg = await client.send_message(
+        chat_id=chat_id,
         text=text,
         parse_mode=enums.ParseMode.HTML,
         disable_web_page_preview=True
     )
+
+    AWAITING_INPUT[query.from_user.id] = {
+        "type": flow_type,
+        "step": step,
+        "prompt_msg_id": prompt_msg.id,
+        "temp_data": {}
+    }
     await query.answer()
 
 
@@ -638,12 +730,20 @@ async def vmenu_log_channel_cb(client: Client, query: CallbackQuery):
 
     AWAITING_INPUT.pop(query.from_user.id, None)
     text, markup = await get_log_channel_markup()
-    await query.message.edit_text(
-        text=text,
-        reply_markup=markup,
-        parse_mode=enums.ParseMode.HTML,
-        disable_web_page_preview=True
-    )
+    try:
+        await query.message.edit_text(
+            text=text,
+            reply_markup=markup,
+            parse_mode=enums.ParseMode.HTML,
+            disable_web_page_preview=True
+        )
+    except Exception:
+        await query.message.reply_text(
+            text=text,
+            reply_markup=markup,
+            parse_mode=enums.ParseMode.HTML,
+            disable_web_page_preview=True
+        )
 
 
 @Client.on_callback_query(filters.regex(r"^vact_del_log_channel$"))
@@ -654,12 +754,15 @@ async def vact_del_log_channel_cb(client: Client, query: CallbackQuery):
     await db.set_verify_log_channel(None)
     await query.answer("SUCCESSFULLY DELETED LOG CHANNEL ✅", show_alert=True)
     text, markup = await get_log_channel_markup()
-    await query.message.edit_text(
-        text=text,
-        reply_markup=markup,
-        parse_mode=enums.ParseMode.HTML,
-        disable_web_page_preview=True
-    )
+    try:
+        await query.message.edit_text(
+            text=text,
+            reply_markup=markup,
+            parse_mode=enums.ParseMode.HTML,
+            disable_web_page_preview=True
+        )
+    except Exception:
+        pass
 
 
 @Client.on_callback_query(filters.regex(r"^vact_set_log_channel$"))
@@ -667,29 +770,37 @@ async def vact_set_log_channel_cb(client: Client, query: CallbackQuery):
     if not is_admin(query.from_user.id):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
 
-    AWAITING_INPUT[query.from_user.id] = {
-        "type": "log_channel",
-        "step": 0,
-        "temp_data": {}
-    }
+    chat_id = query.message.chat.id
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
 
     text = (
         "<b>SEND ME VERIFY LOG CHANNEL ID...</b>\n\n"
         "Example : <code>-1001234567890</code> or Forward a message from channel.\n\n"
         "<code>/cancel</code> - CANCEL THIS PROCESS."
     )
-    await query.message.reply_text(
+    prompt_msg = await client.send_message(
+        chat_id=chat_id,
         text=text,
         parse_mode=enums.ParseMode.HTML
     )
+
+    AWAITING_INPUT[query.from_user.id] = {
+        "type": "log_channel",
+        "step": 0,
+        "prompt_msg_id": prompt_msg.id,
+        "temp_data": {}
+    }
     await query.answer()
 
 
 # =========================================================================
-# 6. /cancel Command Handler
+# 6. /cancel Command Handler (group=-1)
 # =========================================================================
 
-@Client.on_message(filters.command("cancel") & filters.private)
+@Client.on_message(filters.command("cancel") & filters.private, group=-1)
 async def cancel_input_cmd(client: Client, message: Message):
     user_id = message.from_user.id
     if not is_admin(user_id):
@@ -698,42 +809,88 @@ async def cancel_input_cmd(client: Client, message: Message):
     if user_id in AWAITING_INPUT:
         state = AWAITING_INPUT.pop(user_id)
         step = state.get("step", 1)
+        prompt_id = state.get("prompt_msg_id")
+
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        if prompt_id:
+            await safe_delete(client, message.chat.id, prompt_id)
+
         btn = [[InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}" if step else "verify_manage_panel")]]
-        await message.reply_text("<b>PROCESS CANCELLED ❌</b>", reply_markup=InlineKeyboardMarkup(btn), parse_mode=enums.ParseMode.HTML)
+        await client.send_message(
+            chat_id=message.chat.id,
+            text="<b>PROCESS CANCELLED ❌</b>",
+            reply_markup=InlineKeyboardMarkup(btn),
+            parse_mode=enums.ParseMode.HTML
+        )
+        message.stop_propagation()
     else:
-        await message.reply_text("<b>No active process to cancel.</b>", parse_mode=enums.ParseMode.HTML)
+        message.continue_propagation()
 
 
 # =========================================================================
-# 7. Incoming Message Processor (Shortlink 2-step, Tutorial, Time, etc.)
+# 7. Incoming Message Processor (group=-1 with stop_propagation)
 # =========================================================================
 
-@Client.on_message(filters.private & ~filters.command(["start", "admin", "adminpanel", "settings", "cancel"]))
+@Client.on_message(filters.private & ~filters.command(["start", "admin", "adminpanel", "settings", "cancel"]), group=-1)
 async def verify_settings_interactive_listener(client: Client, message: Message):
     user_id = message.from_user.id
     if not is_admin(user_id) or user_id not in AWAITING_INPUT:
+        message.continue_propagation()
         return
+
+    # Critical: Stop propagation so pmfilter / search bot will NOT process this message!
+    message.stop_propagation()
 
     state = AWAITING_INPUT[user_id]
     flow_type = state["type"]
     step = state.get("step", 1)
+    prompt_id = state.get("prompt_msg_id")
+    chat_id = message.chat.id
 
     # 1. Shortener URL (Step 1 of 2)
     if flow_type == "shortener_url":
         raw_url = (message.text or "").strip()
-        cleaned_url = raw_url.replace("https://", "").replace("http://", "").rstrip("/")
-        if not cleaned_url:
-            return await message.reply_text("❌ Please send a valid domain name like <code>vplink.in</code>.")
+        cleaned_url = clean_domain(raw_url)
+        
+        # Clean user message and previous prompt
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        if prompt_id:
+            await safe_delete(client, chat_id, prompt_id)
+
+        if not cleaned_url or "." not in cleaned_url:
+            err_msg = await client.send_message(
+                chat_id=chat_id,
+                text=(
+                    "❌ <b>Invalid Domain Name!</b>\n\n"
+                    "<b>FORMAT :</b>\n\n"
+                    "<code>https://vjlink.online</code> - ❌\n\n"
+                    "<code>vjlink.online</code> - ✅\n\n"
+                    "<code>/cancel</code> - CANCEL THIS PROCESS."
+                ),
+                parse_mode=enums.ParseMode.HTML
+            )
+            state["prompt_msg_id"] = err_msg.id
+            return
 
         # Save url into temp_data and transition to shortener_api step
         state["temp_data"]["site"] = cleaned_url
         state["type"] = "shortener_api"
 
-        await message.reply_text(
-            "<b>SEND ME SHORTLINK API...</b>\n\n"
-            "<code>/cancel</code> - CANCEL THIS PROCESS.",
+        api_prompt = await client.send_message(
+            chat_id=chat_id,
+            text=(
+                "<b>SEND ME SHORTLINK API...</b>\n\n"
+                "<code>/cancel</code> - CANCEL THIS PROCESS."
+            ),
             parse_mode=enums.ParseMode.HTML
         )
+        state["prompt_msg_id"] = api_prompt.id
         return
 
     # 2. Shortener API (Step 2 of 2)
@@ -742,8 +899,16 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
         site_url = state["temp_data"].get("site", "")
         AWAITING_INPUT.pop(user_id, None)
 
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        if prompt_id:
+            await safe_delete(client, chat_id, prompt_id)
+
         if not api_key:
-            return await message.reply_text("❌ API Key cannot be empty.")
+            err_msg = await client.send_message(chat_id=chat_id, text="❌ API Key cannot be empty.")
+            return
 
         await db.update_verify_step_config(step, {
             "shortener_site": site_url,
@@ -751,8 +916,9 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
         })
 
         btn = [[InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}")]]
-        await message.reply_text(
-            "<b>SUCCESSFULLY SET SHORTLINK ✅</b>",
+        await client.send_message(
+            chat_id=chat_id,
+            text="<b>SUCCESSFULLY SET SHORTLINK ✅</b>",
             reply_markup=InlineKeyboardMarkup(btn),
             parse_mode=enums.ParseMode.HTML
         )
@@ -763,16 +929,24 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
         tutorial_link = (message.text or "").strip()
         AWAITING_INPUT.pop(user_id, None)
 
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        if prompt_id:
+            await safe_delete(client, chat_id, prompt_id)
+
         if not tutorial_link:
-            return await message.reply_text("❌ Tutorial link cannot be empty.")
+            return await client.send_message(chat_id=chat_id, text="❌ Tutorial link cannot be empty.")
 
         await db.update_verify_step_config(step, {
             "tutorial": tutorial_link
         })
 
         btn = [[InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}")]]
-        await message.reply_text(
-            "<b>SUCCESSFULLY SET TUTORIAL LINK ✅</b>",
+        await client.send_message(
+            chat_id=chat_id,
+            text="<b>SUCCESSFULLY SET TUTORIAL LINK ✅</b>",
             reply_markup=InlineKeyboardMarkup(btn),
             parse_mode=enums.ParseMode.HTML
         )
@@ -783,6 +957,13 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
         time_text = (message.text or "").strip()
         AWAITING_INPUT.pop(user_id, None)
 
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        if prompt_id:
+            await safe_delete(client, chat_id, prompt_id)
+
         seconds = parse_time_to_seconds(time_text)
         if seconds <= 0:
             seconds = 86400
@@ -792,8 +973,9 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
         })
 
         btn = [[InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}")]]
-        await message.reply_text(
-            "<b>SUCCESSFULLY SET VERIFICATION TIME ✅</b>",
+        await client.send_message(
+            chat_id=chat_id,
+            text="<b>SUCCESSFULLY SET VERIFICATION TIME ✅</b>",
             reply_markup=InlineKeyboardMarkup(btn),
             parse_mode=enums.ParseMode.HTML
         )
@@ -805,6 +987,13 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
         AWAITING_INPUT.pop(user_id, None)
 
         try:
+            await message.delete()
+        except Exception:
+            pass
+        if prompt_id:
+            await safe_delete(client, chat_id, prompt_id)
+
+        try:
             bypass_sec = int(bypass_text)
         except Exception:
             bypass_sec = 12
@@ -814,8 +1003,9 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
         })
 
         btn = [[InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}")]]
-        await message.reply_text(
-            "<b>SUCCESSFULLY SET ANTI-BYPASS TIME ✅</b>",
+        await client.send_message(
+            chat_id=chat_id,
+            text="<b>SUCCESSFULLY SET ANTI-BYPASS TIME ✅</b>",
             reply_markup=InlineKeyboardMarkup(btn),
             parse_mode=enums.ParseMode.HTML
         )
@@ -826,16 +1016,24 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
         raw_text = message.text.html if hasattr(message.text, 'html') and message.text.html else (message.text or "")
         AWAITING_INPUT.pop(user_id, None)
 
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        if prompt_id:
+            await safe_delete(client, chat_id, prompt_id)
+
         if not raw_text:
-            return await message.reply_text("❌ Text message cannot be empty.")
+            return await client.send_message(chat_id=chat_id, text="❌ Text message cannot be empty.")
 
         await db.update_verify_step_config(step, {
             "text": raw_text
         })
 
         btn = [[InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}")]]
-        await message.reply_text(
-            "<b>SUCCESSFULLY SET VERIFY TEXT ✅</b>",
+        await client.send_message(
+            chat_id=chat_id,
+            text="<b>SUCCESSFULLY SET VERIFY TEXT ✅</b>",
             reply_markup=InlineKeyboardMarkup(btn),
             parse_mode=enums.ParseMode.HTML
         )
@@ -849,16 +1047,24 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
         elif message.text and (message.text.startswith("http://") or message.text.startswith("https://")):
             pic_url = message.text.strip()
         else:
-            return await message.reply_text("❌ Please send a photo directly or provide an image link.")
+            return await client.send_message(chat_id=chat_id, text="❌ Please send a photo directly or provide an image link.")
 
         AWAITING_INPUT.pop(user_id, None)
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        if prompt_id:
+            await safe_delete(client, chat_id, prompt_id)
+
         await db.update_verify_step_config(step, {
             "pic": pic_url
         })
 
         btn = [[InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}")]]
-        await message.reply_text(
-            "<b>SUCCESSFULLY SET VERIFY PIC ✅</b>",
+        await client.send_message(
+            chat_id=chat_id,
+            text="<b>SUCCESSFULLY SET VERIFY PIC ✅</b>",
             reply_markup=InlineKeyboardMarkup(btn),
             parse_mode=enums.ParseMode.HTML
         )
@@ -867,8 +1073,14 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
     # 8. Log Channel
     if flow_type == "log_channel":
         AWAITING_INPUT.pop(user_id, None)
-        target_channel_id = None
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        if prompt_id:
+            await safe_delete(client, chat_id, prompt_id)
 
+        target_channel_id = None
         if message.forward_from_chat:
             target_channel_id = message.forward_from_chat.id
         elif message.text:
@@ -879,21 +1091,31 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
                 pass
 
         if not target_channel_id:
-            return await message.reply_text("❌ <b>Invalid Channel ID!</b> Please send numeric ID like <code>-1001234567890</code>.")
+            return await client.send_message(
+                chat_id=chat_id,
+                text="❌ <b>Invalid Channel ID!</b> Please send numeric ID like <code>-1001234567890</code>."
+            )
 
         try:
             chat = await client.get_chat(target_channel_id)
             me = await client.get_me()
             member = await chat.get_member(me.id)
             if member.status not in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]:
-                return await message.reply_text("❌ The bot is not an admin in that channel! Please promote the bot to Admin and try again.")
+                return await client.send_message(
+                    chat_id=chat_id,
+                    text="❌ The bot is not an admin in that channel! Please promote the bot to Admin and try again."
+                )
         except Exception as e:
-            return await message.reply_text(f"❌ Error accessing channel: <code>{e}</code>\nMake sure bot is admin with post permissions!")
+            return await client.send_message(
+                chat_id=chat_id,
+                text=f"❌ Error accessing channel: <code>{e}</code>\nMake sure bot is admin with post permissions!"
+            )
 
         await db.set_verify_log_channel(target_channel_id)
         btn = [[InlineKeyboardButton("‹ BACK", callback_data="vmenu_log_channel")]]
-        await message.reply_text(
-            "<b>SUCCESSFULLY SET VERIFY LOG CHANNEL ✅</b>",
+        await client.send_message(
+            chat_id=chat_id,
+            text="<b>SUCCESSFULLY SET VERIFY LOG CHANNEL ✅</b>",
             reply_markup=InlineKeyboardMarkup(btn),
             parse_mode=enums.ParseMode.HTML
         )
