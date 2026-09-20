@@ -22,6 +22,7 @@ class Database:
         self.connection = self.db.connections
         self.fsub_channels = self.db.fsub_channels
         self.fsub_config = self.db.fsub_config
+        self.custom_admins = self.db.custom_admins
 
     async def add_name(self, filename):
         if await self.movie_updates.find_one({'_id': filename}):
@@ -527,6 +528,66 @@ class Database:
     async def delete_start_message(self):
         res = await self.fsub_config.delete_one({'_id': 'start_message'})
         return res.deleted_count > 0
+
+    async def get_all_custom_admins(self):
+        admins = []
+        cursor = self.custom_admins.find({})
+        async for doc in cursor:
+            admins.append(doc)
+        return admins
+
+    async def get_custom_admin(self, user_id: int):
+        try:
+            uid = int(user_id)
+        except Exception:
+            return None
+        return await self.custom_admins.find_one({'user_id': uid})
+
+    async def add_custom_admin(self, user_id: int, username: str = None, name: str = None, added_by: int = None):
+        uid = int(user_id)
+        doc = {
+            'user_id': uid,
+            'username': str(username).replace('@', '') if username else None,
+            'name': name or "Admin",
+            'added_by': int(added_by) if added_by else None,
+            'added_at': datetime.datetime.utcnow()
+        }
+        await self.custom_admins.update_one(
+            {'user_id': uid},
+            {'$set': doc},
+            upsert=True
+        )
+        if uid not in ADMINS:
+            ADMINS.append(uid)
+        return True
+
+    async def remove_custom_admin(self, user_id: int):
+        uid = int(user_id)
+        res = await self.custom_admins.delete_one({'user_id': uid})
+        if uid in ADMINS:
+            if 'INITIAL_ADMINS' in globals() and uid in INITIAL_ADMINS:
+                pass  # Keep permanent env admin
+            else:
+                try:
+                    ADMINS.remove(uid)
+                except ValueError:
+                    pass
+        return res.deleted_count > 0
+
+    async def sync_custom_admins(self):
+        try:
+            cursor = self.custom_admins.find({})
+            async for doc in cursor:
+                uid = doc.get('user_id')
+                if uid:
+                    try:
+                        uid_int = int(uid)
+                        if uid_int not in ADMINS:
+                            ADMINS.append(uid_int)
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f"Error syncing custom admins: {e}")
      
 db = Database(DATABASE_URI, DATABASE_NAME)    
 db2 = Database(DATABASE_URI2, DATABASE_NAME)
