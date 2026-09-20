@@ -7,14 +7,18 @@ from pyrogram.types import (
     Message
 )
 from database.users_chats_db import db
-from info import ADMINS
+from info import ADMINS, INITIAL_ADMINS
 
 logger = logging.getLogger(__name__)
 
 def is_admin(user_id: int) -> bool:
     try:
         uid = int(user_id)
-        return uid in ADMINS or str(uid) in [str(a) for a in ADMINS]
+        if uid in ADMINS or str(uid) in [str(a) for a in ADMINS]:
+            return True
+        if uid in INITIAL_ADMINS or str(uid) in [str(a) for a in INITIAL_ADMINS]:
+            return True
+        return False
     except Exception:
         return False
 
