@@ -194,9 +194,9 @@ async def get_start_display_details(user):
 
     if not custom_photo:
         try:
-            custom_photo = f"{random.choice(PICS_URL)}?r={get_random_mix_id()}"
+            custom_photo = random.choice(PICS) if PICS else (random.choice(PICS_URL) if PICS_URL else "https://graph.org/file/7478ff3eac37f4329c3d8.jpg")
         except Exception:
-            custom_photo = random.choice(PICS) if PICS else "https://graph.org/file/7478ff3eac37f4329c3d8.jpg"
+            custom_photo = "https://graph.org/file/7478ff3eac37f4329c3d8.jpg"
 
     try:
         custom_msg = await db.get_start_message()
@@ -209,16 +209,23 @@ async def get_start_display_details(user):
     mention = user.mention if hasattr(user, 'mention') and user.mention else first_name
     uid = str(user.id) if hasattr(user, 'id') else ""
 
-    current_time = datetime.now(pytz.timezone(TIMEZONE))
-    curr_time = current_time.hour
-    if curr_time < 12:
-        gtxt = "ɢᴏᴏᴅ ᴍᴏʀɴɪɴɢ 🌞"
-    elif curr_time < 17:
-        gtxt = "ɢᴏᴏᴅ ᴀғᴛᴇʀɴᴏᴏɴ 🌓"
-    elif curr_time < 21:
-        gtxt = "ɢᴏᴏᴅ ᴇᴠᴇɴɪɴɢ 🌘"
-    else:
-        gtxt = "ɢᴏᴏᴅ ɴɪɢʜᴛ 🌑"
+    try:
+        tz_name = globals().get('TIMEZONE', os.environ.get('TIMEZONE', 'Asia/Kolkata'))
+        current_time = datetime.now(pytz.timezone(tz_name))
+        curr_time = current_time.hour
+        if curr_time < 12:
+            gtxt = "ɢᴏᴏᴅ ᴍᴏʀɴɪɴɢ 🌞"
+        elif curr_time < 17:
+            gtxt = "ɢᴏᴏᴅ ᴀғᴛᴇʀɴᴏᴏɴ 🌓"
+        elif curr_time < 21:
+            gtxt = "ɢᴏᴏᴅ ᴇᴠᴇɴɪɴɢ 🌘"
+        else:
+            gtxt = "ɢᴏᴏᴅ ɴɪɢʜᴛ 🌑"
+    except Exception:
+        gtxt = "ɢᴏᴏᴅ ᴅᴀʏ ✨"
+
+    bot_name = temp.B_NAME or "Bot"
+    bot_username = temp.U_NAME or "Bot"
 
     if custom_msg:
         try:
@@ -229,16 +236,16 @@ async def get_start_display_details(user):
                 id=uid,
                 gtxt=gtxt,
                 greetings=gtxt,
-                bot_name=temp.B_NAME,
-                b_name=temp.B_NAME,
-                bot_username=temp.U_NAME,
-                u_name=temp.U_NAME
+                bot_name=bot_name,
+                b_name=bot_name,
+                bot_username=bot_username,
+                u_name=bot_username
             )
         except Exception:
             caption = custom_msg
     else:
         try:
-            caption = script.START_TXT.format(mention, gtxt, temp.U_NAME, temp.B_NAME)
+            caption = script.START_TXT.format(mention, gtxt, bot_username, bot_name)
         except Exception:
             caption = script.START_TXT
 

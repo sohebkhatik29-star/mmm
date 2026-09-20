@@ -57,6 +57,7 @@ def get_start_buttons(user_id):
 
 @Client.on_message(filters.command("start") & filters.incoming)
 async def start(client, message):
+    sticker = None
     try:
         stick_id = "CAACAgUAAxkBAAEQJmJpViid_0yscWKPfh3RMCY8pIkmXwACMAcAAqzbsFexyKU6FPQAAjgE"
         try:
@@ -135,25 +136,43 @@ async def start(client, message):
         if len(message.command) != 2:
             buttons = get_start_buttons(message.from_user.id)
             reply_markup = InlineKeyboardMarkup(buttons)
-            PIC, start_caption = await get_start_display_details(message.from_user)
-            await message.reply_photo(
-                photo=PIC,
-                caption=start_caption,
-                reply_markup=reply_markup,
-                parse_mode=enums.ParseMode.HTML
-            )
+            try:
+                PIC, start_caption = await get_start_display_details(message.from_user)
+                await message.reply_photo(
+                    photo=PIC,
+                    caption=start_caption,
+                    reply_markup=reply_markup,
+                    parse_mode=enums.ParseMode.HTML
+                )
+            except Exception as pe:
+                logger.error(f"Error in start reply_photo: {pe}")
+                _, start_caption = await get_start_display_details(message.from_user)
+                await message.reply_text(
+                    text=start_caption,
+                    reply_markup=reply_markup,
+                    parse_mode=enums.ParseMode.HTML
+                )
             return
 
         if len(message.command) == 2 and message.command[1] in ["subscribe", "error", "okay", "help"]:
             buttons = get_start_buttons(message.from_user.id)
             reply_markup = InlineKeyboardMarkup(buttons)
-            PIC, start_caption = await get_start_display_details(message.from_user)
-            await message.reply_photo(
-                photo=PIC,
-                caption=start_caption,
-                reply_markup=reply_markup,
-                parse_mode=enums.ParseMode.HTML
-            )
+            try:
+                PIC, start_caption = await get_start_display_details(message.from_user)
+                await message.reply_photo(
+                    photo=PIC,
+                    caption=start_caption,
+                    reply_markup=reply_markup,
+                    parse_mode=enums.ParseMode.HTML
+                )
+            except Exception as pe:
+                logger.error(f"Error in start subscribe reply_photo: {pe}")
+                _, start_caption = await get_start_display_details(message.from_user)
+                await message.reply_text(
+                    text=start_caption,
+                    reply_markup=reply_markup,
+                    parse_mode=enums.ParseMode.HTML
+                )
             return
         if message.command[1].startswith("reff_"):
             try:
