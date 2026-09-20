@@ -23,6 +23,8 @@ class Database:
         self.fsub_channels = self.db.fsub_channels
         self.fsub_config = self.db.fsub_config
         self.custom_admins = self.db.custom_admins
+        self.verify_config = self.db.verify_config
+        self.verify_stats = self.db.verify_stats
 
     async def add_name(self, filename):
         if await self.movie_updates.find_one({'_id': filename}):
@@ -588,6 +590,116 @@ class Database:
                         pass
         except Exception as e:
             print(f"Error syncing custom admins: {e}")
+
+    # =========================================================================
+    # Token Verification Configuration Methods
+    # =========================================================================
+
+    async def get_verify_step_config(self, step: int):
+        step_id = f"step_{step}"
+        doc = await self.verify_config.find_one({'_id': step_id})
+        if not doc:
+            doc = {}
+        
+        # Determine defaults based on step
+        if step == 1:
+            default_active = bool(IS_VERIFY)
+            default_site = SHORTENER_WEBSITE or ""
+            default_api = SHORTENER_API or ""
+            default_tutorial = TUTORIAL or ""
+            default_time = TWO_VERIFY_GAP or 1200
+            default_antibypass = 0
+            default_text = script.VERIFICATION_TEXT
+            default_pic = VERIFY_IMG
+        elif step == 2:
+            default_active = bool(SHORTENER_WEBSITE2)
+            default_site = SHORTENER_WEBSITE2 or ""
+            default_api = SHORTENER_API2 or ""
+            default_tutorial = TUTORIAL_2 or ""
+            default_time = TWO_VERIFY_GAP or 1200
+            default_antibypass = 0
+            default_text = script.SECOND_VERIFICATION_TEXT
+            default_pic = VERIFY_IMG
+        else:
+            default_active = bool(SHORTENER_WEBSITE3)
+            default_site = SHORTENER_WEBSITE3 or ""
+            default_api = SHORTENER_API3 or ""
+            default_tutorial = TUTORIAL_3 or ""
+            default_time = THREE_VERIFY_GAP or 1200
+            default_antibypass = 0
+            default_text = script.THIRDT_VERIFICATION_TEXT
+            default_pic = VERIFY_IMG
+
+        return {
+            'is_active': doc.get('is_active', default_active),
+            'shortener_site': doc.get('shortener_site', default_site),
+            'shortener_api': doc.get('shortener_api', default_api),
+            'tutorial': doc.get('tutorial', default_tutorial),
+            'time': doc.get('time', default_time),
+            'anti_bypass_time': doc.get('anti_bypass_time', default_antibypass),
+            'text': doc.get('text', default_text),
+            'pic': doc.get('pic', default_pic)
+        }
+
+    async def update_verify_step_config(self, step: int, updates: dict):
+        step_id = f"step_{step}"
+        updates['updated_at'] = datetime.datetime.utcnow()
+        await self.verify_config.update_one(
+            {'_id': step_id},
+            {'$set': updates},
+            upsert=True
+        )
+        return True
+
+    async def set_verify_log_channel(self, channel_id: int):
+        await self.verify_config.update_one(
+            {'_id': 'verify_log_channel'},
+            {'$set': {'channel_id': int(channel_id), 'updated_at': datetime.datetime.utcnow()}},
+            upsert=True
+        )
+        return True
+
+    async def get_verify_log_channel(self):
+        doc = await self.verify_config.find_one({'_id': 'verify_log_channel'})
+        if doc and doc.get('channel_id'):
+            return int(doc.get('channel_id'))
+        if LOG_VR_CHANNEL and LOG_VR_CHANNEL != -100:
+            return int(LOG_VR_CHANNEL)
+        return None
+
+    async def delete_verify_log_channel(self):
+        res = await self.verify_config.delete_one({'_id': 'verify_log_channel'})
+        return res.deleted_count > 0
+
+    async def log_user_verification(self, user_id: int, step: int):
+        ist_timezone = pytz.timezone('Asia/Kolkata')
+        now_ist = datetime.datetime.now(tz=ist_timezone)
+        today_str = now_ist.strftime("%Y-%m-%d")
+        
+        doc = {
+            'user_id': int(user_id),
+            'step': int(step),
+            'date': today_str,
+            'verified_at': now_ist
+        }
+        try:
+            await self.verify_stats.insert_one(doc)
+        except Exception:
+            pass
+
+    async def get_verified_today_count(self, step: int = None):
+        ist_timezone = pytz.timezone('Asia/Kolkata')
+        now_ist = datetime.datetime.now(tz=ist_timezone)
+        today_str = now_ist.strftime("%Y-%m-%d")
+
+        query = {'date': today_str}
+        if step is not None:
+            query['step'] = int(step)
+
+        try:
+            return await self.verify_stats.count_documents(query)
+        except Exception:
+            return 0
      
 db = Database(DATABASE_URI, DATABASE_NAME)    
 db2 = Database(DATABASE_URI2, DATABASE_NAME)

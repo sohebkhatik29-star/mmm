@@ -571,13 +571,22 @@ async def search_gagala(text):
 
 async def get_shortlink(link, grp_id, is_second_shortener=False, is_third_shortener=False):
     settings = await get_settings(grp_id)
+    step = 3 if is_third_shortener else (2 if is_second_shortener else 1)
+    try:
+        step_cfg = await db.get_verify_step_config(step)
+    except Exception:
+        step_cfg = {}
+
     if is_third_shortener:             
-        api, site = settings['api_three'], settings['shortner_three']
+        api = step_cfg.get('shortener_api') or settings.get('api_three', SHORTENER_API3)
+        site = step_cfg.get('shortener_site') or settings.get('shortner_three', SHORTENER_WEBSITE3)
+    elif is_second_shortener:
+        api = step_cfg.get('shortener_api') or settings.get('api_two', SHORTENER_API2)
+        site = step_cfg.get('shortener_site') or settings.get('shortner_two', SHORTENER_WEBSITE2)
     else:
-        if is_second_shortener:
-            api, site = settings['api_two'], settings['shortner_two']
-        else:
-            api, site = settings['api'], settings['shortner']
+        api = step_cfg.get('shortener_api') or settings.get('api', SHORTENER_API)
+        site = step_cfg.get('shortener_site') or settings.get('shortner', SHORTENER_WEBSITE)
+
     shortzy = Shortzy(api, site)
     try:
         link = await shortzy.convert(link)

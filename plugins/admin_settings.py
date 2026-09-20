@@ -22,6 +22,9 @@ def is_admin(user_id: int) -> bool:
 def get_admin_panel_markup() -> InlineKeyboardMarkup:
     buttons = [
         [
+            InlineKeyboardButton("🎯 ᴛᴏᴋᴇɴ ᴠᴇʀɪꜰɪᴄᴀᴛɪᴏɴ", callback_data="verify_manage_panel")
+        ],
+        [
             InlineKeyboardButton("📢 ꜰᴏʀᴄᴇ ꜱᴜʙꜱᴄʀɪʙᴇ (ꜰꜱᴜʙ)", callback_data="fsub_panel")
         ],
         [
