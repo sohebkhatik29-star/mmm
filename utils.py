@@ -3,6 +3,8 @@ import os
 import logging
 import random
 import string
+from datetime import datetime
+import pytz
 from info import *
 from imdb import Cinemagoer 
 import asyncio
@@ -180,6 +182,65 @@ async def get_fsub_display_details(user):
             "🛑 ʏᴏᴜ ᴍᴜsᴛ ᴊᴏɪɴ ᴛʜᴇ ʀᴇǫᴜɪʀᴇᴅ ᴄʜᴀɴɴᴇʟs ᴛᴏ ᴄᴏɴᴛɪɴᴜᴇ.\n"
             "👉 ᴊᴏɪɴ ᴀʟʟ ᴛʜᴇ ʙᴇʟᴏᴡ ᴄʜᴀɴɴᴇʟs ᴀɴᴅ ᴛʀʏ ᴀɢᴀɪɴ."
         )
+
+    return custom_photo, caption
+
+async def get_start_display_details(user):
+    try:
+        custom_photo = await db.get_start_photo()
+    except Exception as e:
+        logger.error(f"Error fetching start photo: {e}")
+        custom_photo = None
+
+    if not custom_photo:
+        try:
+            custom_photo = f"{random.choice(PICS_URL)}?r={get_random_mix_id()}"
+        except Exception:
+            custom_photo = random.choice(PICS) if PICS else "https://graph.org/file/7478ff3eac37f4329c3d8.jpg"
+
+    try:
+        custom_msg = await db.get_start_message()
+    except Exception as e:
+        logger.error(f"Error fetching start message: {e}")
+        custom_msg = None
+
+    first_name = user.first_name if hasattr(user, 'first_name') and user.first_name else "User"
+    username = f"@{user.username}" if hasattr(user, 'username') and user.username else "No Username"
+    mention = user.mention if hasattr(user, 'mention') and user.mention else first_name
+    uid = str(user.id) if hasattr(user, 'id') else ""
+
+    current_time = datetime.now(pytz.timezone(TIMEZONE))
+    curr_time = current_time.hour
+    if curr_time < 12:
+        gtxt = "ɢᴏᴏᴅ ᴍᴏʀɴɪɴɢ 🌞"
+    elif curr_time < 17:
+        gtxt = "ɢᴏᴏᴅ ᴀғᴛᴇʀɴᴏᴏɴ 🌓"
+    elif curr_time < 21:
+        gtxt = "ɢᴏᴏᴅ ᴇᴠᴇɴɪɴɢ 🌘"
+    else:
+        gtxt = "ɢᴏᴏᴅ ɴɪɢʜᴛ 🌑"
+
+    if custom_msg:
+        try:
+            caption = custom_msg.format(
+                mention=mention,
+                first_name=first_name,
+                username=username,
+                id=uid,
+                gtxt=gtxt,
+                greetings=gtxt,
+                bot_name=temp.B_NAME,
+                b_name=temp.B_NAME,
+                bot_username=temp.U_NAME,
+                u_name=temp.U_NAME
+            )
+        except Exception:
+            caption = custom_msg
+    else:
+        try:
+            caption = script.START_TXT.format(mention, gtxt, temp.U_NAME, temp.B_NAME)
+        except Exception:
+            caption = script.START_TXT
 
     return custom_photo, caption
 

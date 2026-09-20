@@ -497,6 +497,36 @@ class Database:
     async def delete_bot_caption(self):
         res = await self.fsub_config.delete_one({'_id': 'bot_caption'})
         return res.deleted_count > 0
+
+    async def get_start_photo(self):
+        doc = await self.fsub_config.find_one({'_id': 'start_photo'})
+        return doc.get('photo') if doc else None
+
+    async def set_start_photo(self, photo: str):
+        await self.fsub_config.update_one(
+            {'_id': 'start_photo'},
+            {'$set': {'photo': photo, 'updated_at': datetime.datetime.utcnow()}},
+            upsert=True
+        )
+
+    async def delete_start_photo(self):
+        res = await self.fsub_config.delete_one({'_id': 'start_photo'})
+        return res.deleted_count > 0
+
+    async def get_start_message(self):
+        doc = await self.fsub_config.find_one({'_id': 'start_message'})
+        return doc.get('message') if doc else None
+
+    async def set_start_message(self, message: str):
+        await self.fsub_config.update_one(
+            {'_id': 'start_message'},
+            {'$set': {'message': message, 'updated_at': datetime.datetime.utcnow()}},
+            upsert=True
+        )
+
+    async def delete_start_message(self):
+        res = await self.fsub_config.delete_one({'_id': 'start_message'})
+        return res.deleted_count > 0
      
 db = Database(DATABASE_URI, DATABASE_NAME)    
 db2 = Database(DATABASE_URI2, DATABASE_NAME)

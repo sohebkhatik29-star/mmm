@@ -1,4 +1,4 @@
-from utils import get_random_mix_id, get_size, is_subscribed, is_req_subscribed, group_setting_buttons, get_poster, get_posterx, temp, get_settings, save_group_settings, get_cap, imdb, is_check_admin, extract_request_content, log_error, clean_filename, generate_season_variations, clean_search_text, get_all_fsub_channels_list
+from utils import get_random_mix_id, get_size, is_subscribed, is_req_subscribed, group_setting_buttons, get_poster, get_posterx, temp, get_settings, save_group_settings, get_cap, imdb, is_check_admin, extract_request_content, log_error, clean_filename, generate_season_variations, clean_search_text, get_all_fsub_channels_list, get_start_display_details
 import tracemalloc
 from fuzzywuzzy import process
 from dreamxbotz.util.file_properties import get_name, get_hash
@@ -1485,30 +1485,17 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 InlineKeyboardButton('⚙️ ᴀᴅᴍɪɴ sᴇᴛᴛɪɴɢs ⚙️', callback_data='admin_settings')
             ])
         reply_markup = InlineKeyboardMarkup(buttons)
-        current_time = datetime.now(pytz.timezone(TIMEZONE))
-        curr_time = current_time.hour
-        if curr_time < 12:
-            gtxt = "ɢᴏᴏᴅ ᴍᴏʀɴɪɴɢ 🌞"
-        elif curr_time < 17:
-            gtxt = "ɢᴏᴏᴅ ᴀғᴛᴇʀɴᴏᴏɴ 🌓"
-        elif curr_time < 21:
-            gtxt = "ɢᴏᴏᴅ ᴇᴠᴇɴɪɴɢ 🌘"
-        else:
-            gtxt = "ɢᴏᴏᴅ ɴɪɢʜᴛ 🌑"
+        PIC, start_caption = await get_start_display_details(query.from_user)
         try:
-            try:
-                PIC = f"{random.choice(PICS_URL)}?r={get_random_mix_id()}"
-            except Exception:
-                PIC = random.choice(PICS)
             await client.edit_message_media(
                 query.message.chat.id,
                 query.message.id,
                 InputMediaPhoto(PIC)
             )
-        except Exception as e:
+        except Exception:
             pass
         await query.message.edit_text(
-            text=script.START_TXT.format(query.from_user.mention, gtxt, temp.U_NAME, temp.B_NAME),
+            text=start_caption,
             reply_markup=reply_markup,
             parse_mode=enums.ParseMode.HTML
         )

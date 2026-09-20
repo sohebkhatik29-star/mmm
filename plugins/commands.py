@@ -18,7 +18,7 @@ from pyrogram.errors import FloodWait, ChatAdminRequired, UserNotParticipant , C
 from database.ia_filterdb import Media, Media2, get_file_details, unpack_new_file_id, get_bad_files, save_file
 from database.users_chats_db import db
 from info import *
-from utils import get_settings, save_group_settings, is_subscribed, is_req_subscribed, get_size, get_shortlink, is_check_admin, temp, get_readable_time, get_time, generate_settings_text, log_error, clean_filename, get_random_mix_id, get_all_fsub_channels_list, get_fsub_display_details
+from utils import get_settings, save_group_settings, is_subscribed, is_req_subscribed, get_size, get_shortlink, is_check_admin, temp, get_readable_time, get_time, generate_settings_text, log_error, clean_filename, get_random_mix_id, get_all_fsub_channels_list, get_fsub_display_details, get_start_display_details
 import time
 
 logging.basicConfig(level=logging.ERROR)
@@ -135,23 +135,10 @@ async def start(client, message):
         if len(message.command) != 2:
             buttons = get_start_buttons(message.from_user.id)
             reply_markup = InlineKeyboardMarkup(buttons)
-            current_time = datetime.now(pytz.timezone(TIMEZONE))
-            curr_time = current_time.hour        
-            if curr_time < 12:
-                gtxt = "ɢᴏᴏᴅ ᴍᴏʀɴɪɴɢ 🌞" 
-            elif curr_time < 17:
-                gtxt = "ɢᴏᴏᴅ ᴀғᴛᴇʀɴᴏᴏɴ 🌓" 
-            elif curr_time < 21:
-                gtxt = "ɢᴏᴏᴅ ᴇᴠᴇɴɪɴɢ 🌘"
-            else:
-                gtxt = "ɢᴏᴏᴅ ɴɪɢʜᴛ 🌑"
-            try:      
-                PIC = f"{random.choice(PICS_URL)}?r={get_random_mix_id()}"
-            except Exception:
-                PIC = random.choice(PICS)
+            PIC, start_caption = await get_start_display_details(message.from_user)
             await message.reply_photo(
                 photo=PIC,
-                caption=script.START_TXT.format(message.from_user.mention, gtxt, temp.U_NAME, temp.B_NAME),
+                caption=start_caption,
                 reply_markup=reply_markup,
                 parse_mode=enums.ParseMode.HTML
             )
@@ -160,23 +147,10 @@ async def start(client, message):
         if len(message.command) == 2 and message.command[1] in ["subscribe", "error", "okay", "help"]:
             buttons = get_start_buttons(message.from_user.id)
             reply_markup = InlineKeyboardMarkup(buttons)
-            current_time = datetime.now(pytz.timezone(TIMEZONE))
-            curr_time = current_time.hour        
-            if curr_time < 12:
-                gtxt = "ɢᴏᴏᴅ ᴍᴏʀɴɪɴɢ 🌞" 
-            elif curr_time < 17:
-                gtxt = "ɢᴏᴏᴅ ᴀғᴛᴇʀɴᴏᴏɴ 🌓" 
-            elif curr_time < 21:
-                gtxt = "ɢᴏᴏᴅ ᴇᴠᴇɴɪɴɢ 🌘"
-            else:
-                gtxt = "ɢᴏᴏᴅ ɴɪɢʜᴛ 🌑"
-            try:
-                PIC = f"{random.choice(PICS_URL)}?r={get_random_mix_id()}"
-            except Exception:
-                PIC = random.choice(PICS)
+            PIC, start_caption = await get_start_display_details(message.from_user)
             await message.reply_photo(
                 photo=PIC,
-                caption=script.START_TXT.format(message.from_user.mention, gtxt, temp.U_NAME, temp.B_NAME),
+                caption=start_caption,
                 reply_markup=reply_markup,
                 parse_mode=enums.ParseMode.HTML
             )
