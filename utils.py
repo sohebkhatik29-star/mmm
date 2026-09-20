@@ -143,6 +143,46 @@ async def get_all_fsub_channels_list(grp_fsub=None):
     unique_ids = list(dict.fromkeys(combined))
     return unique_ids, dynamic_channels
 
+async def get_fsub_display_details(user):
+    try:
+        custom_photo = await db.get_fsub_photo()
+    except Exception as e:
+        logger.error(f"Error fetching fsub photo: {e}")
+        custom_photo = None
+
+    if not custom_photo:
+        custom_photo = random.choice(FSUB_PICS) if FSUB_PICS else "https://graph.org/file/7478ff3eac37f4329c3d8.jpg"
+
+    try:
+        custom_msg = await db.get_fsub_message()
+    except Exception as e:
+        logger.error(f"Error fetching fsub message: {e}")
+        custom_msg = None
+
+    first_name = user.first_name if hasattr(user, 'first_name') and user.first_name else "User"
+    username = f"@{user.username}" if hasattr(user, 'username') and user.username else "No Username"
+    mention = user.mention if hasattr(user, 'mention') and user.mention else first_name
+    uid = str(user.id) if hasattr(user, 'id') else ""
+
+    if custom_msg:
+        try:
+            caption = custom_msg.format(
+                mention=mention,
+                first_name=first_name,
+                username=username,
+                id=uid
+            )
+        except Exception:
+            caption = custom_msg
+    else:
+        caption = (
+            f"👋 ʜᴇʟʟᴏ {mention}\n\n"
+            "🛑 ʏᴏᴜ ᴍᴜsᴛ ᴊᴏɪɴ ᴛʜᴇ ʀᴇǫᴜɪʀᴇᴅ ᴄʜᴀɴɴᴇʟs ᴛᴏ ᴄᴏɴᴛɪɴᴜᴇ.\n"
+            "👉 ᴊᴏɪɴ ᴀʟʟ ᴛʜᴇ ʙᴇʟᴏᴡ ᴄʜᴀɴɴᴇʟs ᴀɴᴅ ᴛʀʏ ᴀɢᴀɪɴ."
+        )
+
+    return custom_photo, caption
+
 async def is_subscribed(bot, user_id, fsub_channels):
     btn = []
     

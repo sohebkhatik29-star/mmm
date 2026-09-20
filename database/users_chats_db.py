@@ -21,6 +21,7 @@ class Database:
         self.movie_updates = self.db.movie_updates
         self.connection = self.db.connections
         self.fsub_channels = self.db.fsub_channels
+        self.fsub_config = self.db.fsub_config
 
     async def add_name(self, filename):
         if await self.movie_updates.find_one({'_id': filename}):
@@ -449,6 +450,36 @@ class Database:
     async def get_fsub_channel_ids(self):
         cursor = self.fsub_channels.find({}, {'channel_id': 1})
         return [ch['channel_id'] async for ch in cursor]
+
+    async def get_fsub_photo(self):
+        doc = await self.fsub_config.find_one({'_id': 'fsub_photo'})
+        return doc.get('photo') if doc else None
+
+    async def set_fsub_photo(self, photo: str):
+        await self.fsub_config.update_one(
+            {'_id': 'fsub_photo'},
+            {'$set': {'photo': photo, 'updated_at': datetime.datetime.utcnow()}},
+            upsert=True
+        )
+
+    async def delete_fsub_photo(self):
+        res = await self.fsub_config.delete_one({'_id': 'fsub_photo'})
+        return res.deleted_count > 0
+
+    async def get_fsub_message(self):
+        doc = await self.fsub_config.find_one({'_id': 'fsub_message'})
+        return doc.get('message') if doc else None
+
+    async def set_fsub_message(self, message: str):
+        await self.fsub_config.update_one(
+            {'_id': 'fsub_message'},
+            {'$set': {'message': message, 'updated_at': datetime.datetime.utcnow()}},
+            upsert=True
+        )
+
+    async def delete_fsub_message(self):
+        res = await self.fsub_config.delete_one({'_id': 'fsub_message'})
+        return res.deleted_count > 0
      
 db = Database(DATABASE_URI, DATABASE_NAME)    
 db2 = Database(DATABASE_URI2, DATABASE_NAME)
