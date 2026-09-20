@@ -143,6 +143,8 @@ class Database:
         await self.grp.update_one({'id': int(id)}, {'$set': {'settings': settings}})
                                   
     async def get_settings(self, id):
+        bot_custom_caption = await self.get_bot_caption()
+        default_caption = bot_custom_caption if bot_custom_caption else CUSTOM_FILE_CAPTION
         default = {
             'button': BUTTON_MODE,
             'botpm': P_TTI_SHOW_OFF,
@@ -167,7 +169,7 @@ class Database:
             'is_verify': IS_VERIFY,
             'verify_time': TWO_VERIFY_GAP,
             'third_verify_time': THREE_VERIFY_GAP,
-            'caption': CUSTOM_FILE_CAPTION,
+            'caption': default_caption,
             'fsub': AUTH_CHANNELS,
         }
         chat = await self.grp.find_one({'id':int(id)})
@@ -479,6 +481,21 @@ class Database:
 
     async def delete_fsub_message(self):
         res = await self.fsub_config.delete_one({'_id': 'fsub_message'})
+        return res.deleted_count > 0
+
+    async def get_bot_caption(self):
+        doc = await self.fsub_config.find_one({'_id': 'bot_caption'})
+        return doc.get('caption') if doc else None
+
+    async def set_bot_caption(self, caption: str):
+        await self.fsub_config.update_one(
+            {'_id': 'bot_caption'},
+            {'$set': {'caption': caption, 'updated_at': datetime.datetime.utcnow()}},
+            upsert=True
+        )
+
+    async def delete_bot_caption(self):
+        res = await self.fsub_config.delete_one({'_id': 'bot_caption'})
         return res.deleted_count > 0
      
 db = Database(DATABASE_URI, DATABASE_NAME)    

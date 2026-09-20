@@ -25,6 +25,9 @@ def get_admin_panel_markup() -> InlineKeyboardMarkup:
             InlineKeyboardButton("📢 ꜰᴏʀᴄᴇ ꜱᴜʙꜱᴄʀɪʙᴇ (ꜰꜱᴜʙ)", callback_data="fsub_panel")
         ],
         [
+            InlineKeyboardButton("📝 ꜰɪʟᴇ ᴄᴀᴘᴛɪᴏɴ (ᴄᴀᴘᴛᴀɪɴ)", callback_data="caption_panel")
+        ],
+        [
             InlineKeyboardButton("📊 ʙᴏᴛ ꜱᴛᴀᴛɪꜱᴛɪᴄꜱ", callback_data="admin_stats")
         ],
         [
