@@ -587,11 +587,29 @@ async def get_shortlink(link, grp_id, is_second_shortener=False, is_third_shorte
         api = step_cfg.get('shortener_api') or settings.get('api', SHORTENER_API)
         site = step_cfg.get('shortener_site') or settings.get('shortner', SHORTENER_WEBSITE)
 
-    shortzy = Shortzy(api, site)
+    if not api or not site:
+        return link
+
+    # Clean domain
+    site = site.replace("http://", "").replace("https://", "").strip("/")
+
     try:
-        link = await shortzy.convert(link)
+        shortzy = Shortzy(api, site)
+        try:
+            converted = await shortzy.convert(link)
+            if converted:
+                return converted
+        except Exception:
+            pass
+        try:
+            quick = await shortzy.get_quick_link(link)
+            if quick:
+                return quick
+        except Exception:
+            pass
     except Exception as e:
-        link = await shortzy.get_quick_link(link)
+        logger.warning(f"Error initializing Shortzy for site {site}: {e}")
+
     return link
 
 async def get_settings(group_id):
