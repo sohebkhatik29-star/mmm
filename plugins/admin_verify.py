@@ -10,15 +10,20 @@ from pyrogram.types import (
     Message
 )
 from database.users_chats_db import db
-from info import ADMINS, LOG_VR_CHANNEL, SHORTENER_WEBSITE, SHORTENER_API, TUTORIAL, SHORTENER_WEBSITE2, SHORTENER_API2, TUTORIAL_2, SHORTENER_WEBSITE3, SHORTENER_API3, TUTORIAL_3, TWO_VERIFY_GAP, THREE_VERIFY_GAP, VERIFY_IMG, IS_VERIFY
+from info import (
+    ADMINS, LOG_VR_CHANNEL, SHORTENER_WEBSITE, SHORTENER_API, TUTORIAL,
+    SHORTENER_WEBSITE2, SHORTENER_API2, TUTORIAL_2, SHORTENER_WEBSITE3,
+    SHORTENER_API3, TUTORIAL_3, TWO_VERIFY_GAP, THREE_VERIFY_GAP,
+    VERIFY_IMG, IS_VERIFY
+)
 from utils import get_readable_time
 from Script import script
 
 logger = logging.getLogger(__name__)
 
 # State tracking for interactive admin inputs
-AWAITING_VERIFY_INPUT = {}       # {admin_id: {"action": str, "step": int, "prompt_id": int}}
-AWAITING_LOG_CHANNEL_INPUT = {}   # {admin_id: prompt_id}
+# AWAITING_INPUT[user_id] = {"type": "shortener_url"|"shortener_api"|"tutorial"|"time"|"antibypass"|"text"|"pic"|"log_channel", "step": int, "temp_data": dict}
+AWAITING_INPUT = {}
 
 STEP_NAMES = {
     1: {"name": "FIRST", "title": "FIRST TOKEN VERIFICATION:", "ord": "FIRST"},
@@ -50,13 +55,32 @@ def format_verify_time_display(seconds: int) -> str:
         return f"{hours} Hour{'s' if hours > 1 else ''} ({mins} Minutes)"
     elif sec >= 60:
         mins = sec // 60
-        return f"{mins}m ({sec}s)"
+        return f"{mins} Minutes ({sec}s)"
     else:
         return f"{sec} Seconds"
 
 
+def parse_time_to_seconds(text_val: str) -> int:
+    text_val = text_val.strip().lower()
+    if text_val.endswith("d") or "day" in text_val:
+        num = re.findall(r"\d+", text_val)
+        return int(num[0]) * 86400 if num else 86400
+    if text_val.endswith("h") or "hour" in text_val or "hr" in text_val:
+        num = re.findall(r"\d+", text_val)
+        return int(num[0]) * 3600 if num else 3600
+    if text_val.endswith("m") or "min" in text_val:
+        num = re.findall(r"\d+", text_val)
+        return int(num[0]) * 60 if num else 60
+    if text_val.endswith("s") or "sec" in text_val:
+        num = re.findall(r"\d+", text_val)
+        return int(num[0]) if num else 60
+    # Raw numeric
+    num = re.findall(r"\d+", text_val)
+    return int(num[0]) if num else 1200
+
+
 # =========================================================================
-# 1. Main Verify Management Hub Markup
+# 1. Main Verify Management Hub
 # =========================================================================
 
 def get_main_verify_markup() -> InlineKeyboardMarkup:
@@ -80,8 +104,28 @@ def get_main_verify_markup() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(buttons)
 
 
+@Client.on_callback_query(filters.regex(r"^verify_manage_panel$"))
+async def verify_manage_panel_cb(client: Client, query: CallbackQuery):
+    if not is_admin(query.from_user.id):
+        return await query.answer("⛔️ Access Denied!", show_alert=True)
+
+    AWAITING_INPUT.pop(query.from_user.id, None)
+
+    text = (
+        "🎯 <b>TOKEN VERIFICATION:</b>\n\n"
+        "❝ <b>TOKEN VERIFICATION:</b> A SYSTEM REQUIRING USERS TO WATCH ADS OR SOLVE CAPTCHAS ON EXTERNAL SITES TO UNLOCK BOT ACCESS FOR TIME THAT BOT OWNER SET AND ALSO ALLOWING BOT OWNERS TO EARN MONEY WHENEVER A USER CLICKS. ❞"
+    )
+
+    await query.message.edit_text(
+        text=text,
+        reply_markup=get_main_verify_markup(),
+        parse_mode=enums.ParseMode.HTML,
+        disable_web_page_preview=True
+    )
+
+
 # =========================================================================
-# 2. Step Hub Markup (Exact matches from video)
+# 2. Step Hub (FIRST / SECOND / THIRD TOKEN VERIFICATION:)
 # =========================================================================
 
 async def get_step_verify_markup(step: int) -> tuple:
@@ -125,38 +169,13 @@ async def get_step_verify_markup(step: int) -> tuple:
     return text, InlineKeyboardMarkup(buttons)
 
 
-# =========================================================================
-# 3. Main Callbacks
-# =========================================================================
-
-@Client.on_callback_query(filters.regex(r"^verify_manage_panel$"))
-async def verify_manage_panel_cb(client: Client, query: CallbackQuery):
-    if not is_admin(query.from_user.id):
-        return await query.answer("⛔️ Access Denied!", show_alert=True)
-
-    AWAITING_VERIFY_INPUT.pop(query.from_user.id, None)
-    AWAITING_LOG_CHANNEL_INPUT.pop(query.from_user.id, None)
-
-    text = (
-        "🎯 <b>TOKEN VERIFICATION:</b>\n\n"
-        "❝ <b>TOKEN VERIFICATION:</b> A SYSTEM REQUIRING USERS TO WATCH ADS OR SOLVE CAPTCHAS ON EXTERNAL SITES TO UNLOCK BOT ACCESS FOR TIME THAT BOT OWNER SET AND ALSO ALLOWING BOT OWNERS TO EARN MONEY WHENEVER A USER CLICKS. ❞"
-    )
-
-    await query.message.edit_text(
-        text=text,
-        reply_markup=get_main_verify_markup(),
-        parse_mode=enums.ParseMode.HTML,
-        disable_web_page_preview=True
-    )
-
-
 @Client.on_callback_query(filters.regex(r"^vmenu_(\d+)$"))
 async def vmenu_step_cb(client: Client, query: CallbackQuery):
     if not is_admin(query.from_user.id):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
 
     step = int(query.matches[0].group(1))
-    AWAITING_VERIFY_INPUT.pop(query.from_user.id, None)
+    AWAITING_INPUT.pop(query.from_user.id, None)
 
     text, markup = await get_step_verify_markup(step)
     await query.message.edit_text(
@@ -204,16 +223,17 @@ async def vact_stats_cb(client: Client, query: CallbackQuery):
 
 
 # =========================================================================
-# 4. Step Sub-Screens (Shortener, Tutorial, Time, Anti-Bypass, Text, Pic)
+# 3. Step Sub-Screens
 # =========================================================================
 
-# --- 4.1 Shortener Sub-Screen ---
+# --- 3.1 Shortener Sub-Screen ---
 @Client.on_callback_query(filters.regex(r"^vsub_(\d+)_shortener$"))
 async def vsub_shortener_cb(client: Client, query: CallbackQuery):
     if not is_admin(query.from_user.id):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
 
     step = int(query.matches[0].group(1))
+    AWAITING_INPUT.pop(query.from_user.id, None)
     cfg = await db.get_verify_step_config(step)
     info = STEP_NAMES.get(step, STEP_NAMES[1])
     ord_name = info["ord"]
@@ -229,7 +249,7 @@ async def vsub_shortener_cb(client: Client, query: CallbackQuery):
     )
 
     buttons = [
-        [InlineKeyboardButton("SET SHORTLINK", callback_data=f"vprompt_{step}_shortener")],
+        [InlineKeyboardButton("SET SHORTLINK", callback_data=f"vflow_{step}_shortener_url")],
         [InlineKeyboardButton("DELETE SHORTLINK", callback_data=f"vdel_{step}_shortener")],
         [InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}")]
     ]
@@ -256,13 +276,14 @@ async def vdel_shortener_cb(client: Client, query: CallbackQuery):
     await vsub_shortener_cb(client, query)
 
 
-# --- 4.2 Tutorial Sub-Screen ---
+# --- 3.2 Tutorial Sub-Screen ---
 @Client.on_callback_query(filters.regex(r"^vsub_(\d+)_tutorial$"))
 async def vsub_tutorial_cb(client: Client, query: CallbackQuery):
     if not is_admin(query.from_user.id):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
 
     step = int(query.matches[0].group(1))
+    AWAITING_INPUT.pop(query.from_user.id, None)
     cfg = await db.get_verify_step_config(step)
     info = STEP_NAMES.get(step, STEP_NAMES[1])
     ord_name = info["ord"]
@@ -276,7 +297,7 @@ async def vsub_tutorial_cb(client: Client, query: CallbackQuery):
     )
 
     buttons = [
-        [InlineKeyboardButton("SET TUTORIAL", callback_data=f"vprompt_{step}_tutorial")],
+        [InlineKeyboardButton("SET TUTORIAL", callback_data=f"vflow_{step}_tutorial")],
         [InlineKeyboardButton("DELETE TUTORIAL", callback_data=f"vdel_{step}_tutorial")],
         [InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}")]
     ]
@@ -300,18 +321,19 @@ async def vdel_tutorial_cb(client: Client, query: CallbackQuery):
     await vsub_tutorial_cb(client, query)
 
 
-# --- 4.3 Verify Time Sub-Screen ---
+# --- 3.3 Verify Time Sub-Screen ---
 @Client.on_callback_query(filters.regex(r"^vsub_(\d+)_time$"))
 async def vsub_time_cb(client: Client, query: CallbackQuery):
     if not is_admin(query.from_user.id):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
 
     step = int(query.matches[0].group(1))
+    AWAITING_INPUT.pop(query.from_user.id, None)
     cfg = await db.get_verify_step_config(step)
     info = STEP_NAMES.get(step, STEP_NAMES[1])
     ord_name = info["ord"]
 
-    current_sec = cfg.get("time", 1200 if step == 1 else (TWO_VERIFY_GAP if step == 2 else THREE_VERIFY_GAP))
+    current_sec = cfg.get("time", 86400 if step == 1 else (TWO_VERIFY_GAP if step == 2 else THREE_VERIFY_GAP))
     time_display = format_verify_time_display(current_sec)
 
     text = (
@@ -321,7 +343,7 @@ async def vsub_time_cb(client: Client, query: CallbackQuery):
     )
 
     buttons = [
-        [InlineKeyboardButton("SET VERIFY TIME", callback_data=f"vprompt_{step}_time")],
+        [InlineKeyboardButton("SET VERIFY TIME", callback_data=f"vflow_{step}_time")],
         [InlineKeyboardButton("RESET TIME", callback_data=f"vdel_{step}_time")],
         [InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}")]
     ]
@@ -340,19 +362,20 @@ async def vdel_time_cb(client: Client, query: CallbackQuery):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
 
     step = int(query.matches[0].group(1))
-    default_time = 1200 if step == 1 else (TWO_VERIFY_GAP if step == 2 else THREE_VERIFY_GAP)
+    default_time = 86400 if step == 1 else (TWO_VERIFY_GAP if step == 2 else THREE_VERIFY_GAP)
     await db.update_verify_step_config(step, {"time": default_time})
     await query.answer("SUCCESSFULLY RESET VERIFY TIME ✅", show_alert=True)
     await vsub_time_cb(client, query)
 
 
-# --- 4.4 Anti-Bypass Time Sub-Screen ---
+# --- 3.4 Anti-Bypass Time Sub-Screen ---
 @Client.on_callback_query(filters.regex(r"^vsub_(\d+)_antibypass$"))
 async def vsub_antibypass_cb(client: Client, query: CallbackQuery):
     if not is_admin(query.from_user.id):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
 
     step = int(query.matches[0].group(1))
+    AWAITING_INPUT.pop(query.from_user.id, None)
     cfg = await db.get_verify_step_config(step)
     info = STEP_NAMES.get(step, STEP_NAMES[1])
     ord_name = info["ord"]
@@ -367,7 +390,7 @@ async def vsub_antibypass_cb(client: Client, query: CallbackQuery):
     )
 
     buttons = [
-        [InlineKeyboardButton("SET BYPASS TIME", callback_data=f"vprompt_{step}_antibypass")],
+        [InlineKeyboardButton("SET BYPASS TIME", callback_data=f"vflow_{step}_antibypass")],
         [InlineKeyboardButton("RESET BYPASS TIME (12s)", callback_data=f"vdel_{step}_antibypass")],
         [InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}")]
     ]
@@ -387,17 +410,18 @@ async def vdel_antibypass_cb(client: Client, query: CallbackQuery):
 
     step = int(query.matches[0].group(1))
     await db.update_verify_step_config(step, {"anti_bypass_time": 12})
-    await query.answer("SUCCESSFULLY RESET ANTI-BYPASS TIME ✅", show_alert=True)
+    await query.answer("SUCCESSFULLY RESET BYPASS TIME ✅", show_alert=True)
     await vsub_antibypass_cb(client, query)
 
 
-# --- 4.5 Verify Text Sub-Screen ---
+# --- 3.5 Verify Text Sub-Screen ---
 @Client.on_callback_query(filters.regex(r"^vsub_(\d+)_text$"))
 async def vsub_text_cb(client: Client, query: CallbackQuery):
     if not is_admin(query.from_user.id):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
 
     step = int(query.matches[0].group(1))
+    AWAITING_INPUT.pop(query.from_user.id, None)
     cfg = await db.get_verify_step_config(step)
     info = STEP_NAMES.get(step, STEP_NAMES[1])
     ord_name = info["ord"]
@@ -412,7 +436,7 @@ async def vsub_text_cb(client: Client, query: CallbackQuery):
     )
 
     buttons = [
-        [InlineKeyboardButton("SET VERIFY TEXT", callback_data=f"vprompt_{step}_text")],
+        [InlineKeyboardButton("SET VERIFY TEXT", callback_data=f"vflow_{step}_text")],
         [InlineKeyboardButton("SEE VERIFY TEXT", callback_data=f"vsee_{step}_text")],
         [InlineKeyboardButton("RESET VERIFY TEXT", callback_data=f"vdel_{step}_text")],
         [InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}")]
@@ -460,13 +484,14 @@ async def vdel_text_cb(client: Client, query: CallbackQuery):
     await vsub_text_cb(client, query)
 
 
-# --- 4.6 Verify Pic Sub-Screen ---
+# --- 3.6 Verify Pic Sub-Screen ---
 @Client.on_callback_query(filters.regex(r"^vsub_(\d+)_pic$"))
 async def vsub_pic_cb(client: Client, query: CallbackQuery):
     if not is_admin(query.from_user.id):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
 
     step = int(query.matches[0].group(1))
+    AWAITING_INPUT.pop(query.from_user.id, None)
     cfg = await db.get_verify_step_config(step)
     info = STEP_NAMES.get(step, STEP_NAMES[1])
     ord_name = info["ord"]
@@ -480,11 +505,11 @@ async def vsub_pic_cb(client: Client, query: CallbackQuery):
     text = (
         f"🖼 <b>{ord_name} VERIFY PIC:</b>\n\n"
         "❝ <b>ATTACH A PHOTO WITH YOUR VERIFICATION PROMPT MESSAGE TO MAKE IT MORE ATTRACTIVE.</b> ❞\n\n"
-        f"<b>PHOTO STATUS:</b> {photo_status}"
+        f"<b>PHOTO STATUS :</b> {photo_status}"
     )
 
     buttons = [
-        [InlineKeyboardButton("SET VERIFY PIC", callback_data=f"vprompt_{step}_pic")],
+        [InlineKeyboardButton("SET VERIFY PIC", callback_data=f"vflow_{step}_pic")],
         [InlineKeyboardButton("DELETE VERIFY PIC", callback_data=f"vdel_{step}_pic")],
         [InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}")]
     ]
@@ -509,126 +534,78 @@ async def vdel_pic_cb(client: Client, query: CallbackQuery):
 
 
 # =========================================================================
-# 5. Interactive Prompts For Inputs
+# 4. Interactive Input Initiation (vflow_*)
 # =========================================================================
 
-@Client.on_callback_query(filters.regex(r"^vprompt_(\d+)_(shortener|tutorial|time|antibypass|text|pic)$"))
-async def vprompt_input_cb(client: Client, query: CallbackQuery):
+@Client.on_callback_query(filters.regex(r"^vflow_(\d+)_(shortener_url|tutorial|time|antibypass|text|pic)$"))
+async def vflow_initiate_cb(client: Client, query: CallbackQuery):
     if not is_admin(query.from_user.id):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
 
     step = int(query.matches[0].group(1))
-    action = query.matches[0].group(2)
-    cfg = await db.get_verify_step_config(step)
-    info = STEP_NAMES.get(step, STEP_NAMES[1])
-    ord_name = info["ord"]
+    flow_type = query.matches[0].group(2)
 
-    AWAITING_VERIFY_INPUT[query.from_user.id] = {
+    AWAITING_INPUT[query.from_user.id] = {
+        "type": flow_type,
         "step": step,
-        "action": action,
-        "prompt_id": query.message.id
+        "temp_data": {}
     }
 
-    if action == "shortener":
+    if flow_type == "shortener_url":
         text = (
-            f"💳 <b><u>Set {ord_name} Verify Shortener & API</u></b>\n\n"
-            f"<b>Current Site:</b> <code>{cfg.get('shortener_site') or 'Not Set'}</code>\n"
-            f"<b>Current API:</b> <code>{cfg.get('shortener_api') or 'Not Set'}</code>\n\n"
-            "📝 <b>Format:</b> Send Shortener Domain and API Key separated by a space.\n\n"
-            "<b>Example:</b>\n"
-            "<code>shareus.io 1234567890abcdef1234567890abcdef</code>\n\n"
-            "<i>Or send single link / domain if API is separated.</i>"
+            "<b>SEND ME A SHORTLINK URL...</b>\n\n"
+            "<b>FORMAT :</b>\n\n"
+            "<code>https://vjlink.online</code> - ❌\n\n"
+            "<code>vjlink.online</code> - ✅\n\n"
+            "<code>/cancel</code> - CANCEL THIS PROCESS."
         )
-        buttons = [
-            [InlineKeyboardButton("🔄 Reset to Default", callback_data=f"vdel_{step}_shortener")],
-            [InlineKeyboardButton("❌ Cancel", callback_data=f"vsub_{step}_shortener")]
-        ]
 
-    elif action == "tutorial":
+    elif flow_type == "tutorial":
         text = (
-            f"🍿 <b><u>Set {ord_name} Verify Tutorial</u></b>\n\n"
-            f"<b>Current Tutorial:</b> {cfg.get('tutorial') or 'Not Set'}\n\n"
-            "📝 Send the new tutorial link or video URL for this verification step."
+            "<b>SEND ME A TUTORIAL LINK...</b>\n\n"
+            "<code>/cancel</code> - CANCEL THIS PROCESS."
         )
-        buttons = [
-            [InlineKeyboardButton("🔄 Reset to Default", callback_data=f"vdel_{step}_tutorial")],
-            [InlineKeyboardButton("❌ Cancel", callback_data=f"vsub_{step}_tutorial")]
-        ]
 
-    elif action == "time":
-        current_time_str = format_verify_time_display(cfg.get('time', 1200))
+    elif flow_type == "time":
         text = (
-            f"⏳ <b><u>Set {ord_name} Verify Time</u></b>\n\n"
-            f"<b>Current Time:</b> {current_time_str}\n\n"
-            "📝 Send duration in seconds (e.g. <code>1200</code> for 20m, <code>86400</code> for 24h) or choose a preset below:"
+            "<b>SEND ME A VERIFICATION TIME...</b>\n\n"
+            "<b>FORMAT :</b>\n\n"
+            "1 Day - <code>1440m</code> or <code>1d</code>\n"
+            "1 Hour - <code>60m</code> or <code>1h</code>\n"
+            "10 Minutes - <code>10m</code>\n\n"
+            "<code>/cancel</code> - CANCEL THIS PROCESS."
         )
-        buttons = [
-            [
-                InlineKeyboardButton("15 Min", callback_data=f"vsettime_{step}_900"),
-                InlineKeyboardButton("30 Min", callback_data=f"vsettime_{step}_1800"),
-            ],
-            [
-                InlineKeyboardButton("1 Hour", callback_data=f"vsettime_{step}_3600"),
-                InlineKeyboardButton("12 Hours", callback_data=f"vsettime_{step}_43200"),
-                InlineKeyboardButton("24 Hours", callback_data=f"vsettime_{step}_86400"),
-            ],
-            [InlineKeyboardButton("❌ Cancel", callback_data=f"vsub_{step}_time")]
-        ]
 
-    elif action == "antibypass":
+    elif flow_type == "antibypass":
         text = (
-            f"🛡 <b><u>Set {ord_name} Anti-Bypass Time</u></b>\n\n"
-            f"<b>Current Minimum Time:</b> {cfg.get('anti_bypass_time', 12)} Seconds\n\n"
-            "📝 Send the minimum required time in seconds (e.g. <code>12</code> or <code>15</code>) that user must spend before submitting verification token."
+            "<b>SEND ME ANTI-BYPASS TIME IN SECONDS...</b>\n\n"
+            "Example : <code>12</code> or <code>15</code>\n\n"
+            "<code>/cancel</code> - CANCEL THIS PROCESS."
         )
-        buttons = [
-            [InlineKeyboardButton("❌ Cancel", callback_data=f"vsub_{step}_antibypass")]
-        ]
 
-    elif action == "text":
+    elif flow_type == "text":
         text = (
-            f"✍ <b><u>Set {ord_name} Verify Prompt Text</u></b>\n\n"
-            "📝 Send the custom text message to display when prompting users to verify.\n\n"
-            "You can use formatting tags (<b>bold</b>, <i>italic</i>) and <code>{mention}</code> placeholder."
+            "<b>SEND ME CUSTOM VERIFICATION TEXT...</b>\n\n"
+            "You can use <code>{mention}</code> for user tag.\n\n"
+            "<code>/cancel</code> - CANCEL THIS PROCESS."
         )
-        buttons = [
-            [InlineKeyboardButton("🔄 Reset to Default", callback_data=f"vdel_{step}_text")],
-            [InlineKeyboardButton("❌ Cancel", callback_data=f"vsub_{step}_text")]
-        ]
 
-    elif action == "pic":
+    elif flow_type == "pic":
         text = (
-            f"🖼 <b><u>Set {ord_name} Verify Picture</u></b>\n\n"
-            "📝 Send a photo directly, or send an image URL (telegra.ph / direct link) to attach to verification messages."
+            "<b>SEND ME A PHOTO OR IMAGE LINK...</b>\n\n"
+            "<code>/cancel</code> - CANCEL THIS PROCESS."
         )
-        buttons = [
-            [InlineKeyboardButton("❌ Cancel", callback_data=f"vsub_{step}_pic")]
-        ]
-    else:
-        return
 
-    await query.message.edit_text(
+    await query.message.reply_text(
         text=text,
-        reply_markup=InlineKeyboardMarkup(buttons),
         parse_mode=enums.ParseMode.HTML,
         disable_web_page_preview=True
     )
-
-
-@Client.on_callback_query(filters.regex(r"^vsettime_(\d+)_(\d+)$"))
-async def vsettime_preset_cb(client: Client, query: CallbackQuery):
-    if not is_admin(query.from_user.id):
-        return await query.answer("⛔️ Access Denied!", show_alert=True)
-
-    step = int(query.matches[0].group(1))
-    seconds = int(query.matches[0].group(2))
-    await db.update_verify_step_config(step, {"time": seconds})
-    await query.answer(f"Verify time updated to {format_verify_time_display(seconds)} ✅", show_alert=True)
-    await vsub_time_cb(client, query)
+    await query.answer()
 
 
 # =========================================================================
-# 6. Verify Log Channel Menu & Handlers (Exact match from video)
+# 5. Log Channel Menu
 # =========================================================================
 
 async def get_log_channel_markup() -> tuple:
@@ -659,7 +636,7 @@ async def vmenu_log_channel_cb(client: Client, query: CallbackQuery):
     if not is_admin(query.from_user.id):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
 
-    AWAITING_LOG_CHANNEL_INPUT.pop(query.from_user.id, None)
+    AWAITING_INPUT.pop(query.from_user.id, None)
     text, markup = await get_log_channel_markup()
     await query.message.edit_text(
         text=text,
@@ -690,155 +667,234 @@ async def vact_set_log_channel_cb(client: Client, query: CallbackQuery):
     if not is_admin(query.from_user.id):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
 
-    AWAITING_LOG_CHANNEL_INPUT[query.from_user.id] = query.message.id
+    AWAITING_INPUT[query.from_user.id] = {
+        "type": "log_channel",
+        "step": 0,
+        "temp_data": {}
+    }
 
     text = (
-        "👥 <b><u>Set Verify Log Channel</u></b>\n\n"
-        "📝 Send the Channel ID (e.g. <code>-1001234567890</code>) or forward any message from the channel.\n\n"
-        "<i>Make sure the bot is added as an Admin in the channel!</i>"
+        "<b>SEND ME VERIFY LOG CHANNEL ID...</b>\n\n"
+        "Example : <code>-1001234567890</code> or Forward a message from channel.\n\n"
+        "<code>/cancel</code> - CANCEL THIS PROCESS."
     )
-    buttons = [
-        [InlineKeyboardButton("❌ Cancel", callback_data="vmenu_log_channel")]
-    ]
-    await query.message.edit_text(
+    await query.message.reply_text(
         text=text,
-        reply_markup=InlineKeyboardMarkup(buttons),
         parse_mode=enums.ParseMode.HTML
     )
+    await query.answer()
 
 
 # =========================================================================
-# 7. Incoming Message Listener for Interactive Inputs
+# 6. /cancel Command Handler
 # =========================================================================
 
-@Client.on_message(filters.private & ~filters.command(["start", "admin", "adminpanel", "settings"]))
-async def verify_settings_input_listener(client: Client, message: Message):
+@Client.on_message(filters.command("cancel") & filters.private)
+async def cancel_input_cmd(client: Client, message: Message):
     user_id = message.from_user.id
     if not is_admin(user_id):
         return
 
-    # 1. Log Channel input
-    if user_id in AWAITING_LOG_CHANNEL_INPUT:
-        prompt_id = AWAITING_LOG_CHANNEL_INPUT.pop(user_id)
-        channel_id = None
+    if user_id in AWAITING_INPUT:
+        state = AWAITING_INPUT.pop(user_id)
+        step = state.get("step", 1)
+        btn = [[InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}" if step else "verify_manage_panel")]]
+        await message.reply_text("<b>PROCESS CANCELLED ❌</b>", reply_markup=InlineKeyboardMarkup(btn), parse_mode=enums.ParseMode.HTML)
+    else:
+        await message.reply_text("<b>No active process to cancel.</b>", parse_mode=enums.ParseMode.HTML)
 
-        if message.forward_from_chat:
-            channel_id = message.forward_from_chat.id
-        elif message.text:
-            text_cleaned = message.text.strip()
-            try:
-                channel_id = int(text_cleaned)
-            except ValueError:
-                pass
 
-        if not channel_id:
-            await message.reply_text("❌ Invalid Channel ID or Forward. Please send a valid channel ID like <code>-1001234567890</code>.")
-            return
+# =========================================================================
+# 7. Incoming Message Processor (Shortlink 2-step, Tutorial, Time, etc.)
+# =========================================================================
 
-        try:
-            chat = await client.get_chat(channel_id)
-            me = await client.get_me()
-            member = await chat.get_member(me.id)
-            if member.status not in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]:
-                return await message.reply_text("❌ The bot is not an admin in that channel! Please make the bot an admin and try again.")
-        except Exception as e:
-            return await message.reply_text(f"❌ Error accessing channel: <code>{e}</code>\nMake sure the bot is added as an admin!")
+@Client.on_message(filters.private & ~filters.command(["start", "admin", "adminpanel", "settings", "cancel"]))
+async def verify_settings_interactive_listener(client: Client, message: Message):
+    user_id = message.from_user.id
+    if not is_admin(user_id) or user_id not in AWAITING_INPUT:
+        return
 
-        await db.set_verify_log_channel(channel_id)
+    state = AWAITING_INPUT[user_id]
+    flow_type = state["type"]
+    step = state.get("step", 1)
+
+    # 1. Shortener URL (Step 1 of 2)
+    if flow_type == "shortener_url":
+        raw_url = (message.text or "").strip()
+        cleaned_url = raw_url.replace("https://", "").replace("http://", "").rstrip("/")
+        if not cleaned_url:
+            return await message.reply_text("❌ Please send a valid domain name like <code>vplink.in</code>.")
+
+        # Save url into temp_data and transition to shortener_api step
+        state["temp_data"]["site"] = cleaned_url
+        state["type"] = "shortener_api"
+
         await message.reply_text(
-            f"✅ <b>Verify Log Channel Set Successfully!</b>\n\n<b>Title:</b> {chat.title}\n<b>ID:</b> <code>{channel_id}</code>",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("‹ BACK TO VERIFY MENU", callback_data="vmenu_log_channel")]])
+            "<b>SEND ME SHORTLINK API...</b>\n\n"
+            "<code>/cancel</code> - CANCEL THIS PROCESS.",
+            parse_mode=enums.ParseMode.HTML
         )
         return
 
-    # 2. Verification Step inputs
-    if user_id in AWAITING_VERIFY_INPUT:
-        state = AWAITING_VERIFY_INPUT.pop(user_id)
-        step = state["step"]
-        action = state["action"]
-        info = STEP_NAMES.get(step, STEP_NAMES[1])
-        ord_name = info["ord"]
+    # 2. Shortener API (Step 2 of 2)
+    if flow_type == "shortener_api":
+        api_key = (message.text or "").strip()
+        site_url = state["temp_data"].get("site", "")
+        AWAITING_INPUT.pop(user_id, None)
 
-        if action == "shortener":
-            text = message.text.strip() if message.text else ""
-            parts = text.split()
-            if len(parts) >= 2:
-                site = parts[0].replace("https://", "").replace("http://", "").rstrip("/")
-                api = parts[1]
-            elif len(parts) == 1:
-                site = parts[0].replace("https://", "").replace("http://", "").rstrip("/")
-                api = ""
-            else:
-                return await message.reply_text("❌ Invalid format. Please send domain and API key separated by a space.")
+        if not api_key:
+            return await message.reply_text("❌ API Key cannot be empty.")
 
-            update_data = {"shortener_site": site}
-            if api:
-                update_data["shortener_api"] = api
-            await db.update_verify_step_config(step, update_data)
-            await message.reply_text(
-                f"✅ <b>{ord_name} Verify Shortener Updated!</b>\n\n<b>Site:</b> <code>{site}</code>\n<b>API:</b> <code>{api or 'Unchanged'}</code>",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"‹ BACK TO {ord_name} VERIFY", callback_data=f"vsub_{step}_shortener")]])
-            )
+        await db.update_verify_step_config(step, {
+            "shortener_site": site_url,
+            "shortener_api": api_key
+        })
 
-        elif action == "tutorial":
-            tutorial_url = message.text.strip() if message.text else ""
-            if not tutorial_url.startswith("http"):
-                return await message.reply_text("❌ Please send a valid HTTP/HTTPS URL for the tutorial.")
-            await db.update_verify_step_config(step, {"tutorial": tutorial_url})
-            await message.reply_text(
-                f"✅ <b>{ord_name} Verify Tutorial Updated!</b>\n\n<b>URL:</b> {tutorial_url}",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"‹ BACK TO {ord_name} VERIFY", callback_data=f"vsub_{step}_tutorial")]])
-            )
+        btn = [[InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}")]]
+        await message.reply_text(
+            "<b>SUCCESSFULLY SET SHORTLINK ✅</b>",
+            reply_markup=InlineKeyboardMarkup(btn),
+            parse_mode=enums.ParseMode.HTML
+        )
+        return
 
-        elif action == "time":
+    # 3. Tutorial Link
+    if flow_type == "tutorial":
+        tutorial_link = (message.text or "").strip()
+        AWAITING_INPUT.pop(user_id, None)
+
+        if not tutorial_link:
+            return await message.reply_text("❌ Tutorial link cannot be empty.")
+
+        await db.update_verify_step_config(step, {
+            "tutorial": tutorial_link
+        })
+
+        btn = [[InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}")]]
+        await message.reply_text(
+            "<b>SUCCESSFULLY SET TUTORIAL LINK ✅</b>",
+            reply_markup=InlineKeyboardMarkup(btn),
+            parse_mode=enums.ParseMode.HTML
+        )
+        return
+
+    # 4. Verify Time
+    if flow_type == "time":
+        time_text = (message.text or "").strip()
+        AWAITING_INPUT.pop(user_id, None)
+
+        seconds = parse_time_to_seconds(time_text)
+        if seconds <= 0:
+            seconds = 86400
+
+        await db.update_verify_step_config(step, {
+            "time": seconds
+        })
+
+        btn = [[InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}")]]
+        await message.reply_text(
+            "<b>SUCCESSFULLY SET VERIFICATION TIME ✅</b>",
+            reply_markup=InlineKeyboardMarkup(btn),
+            parse_mode=enums.ParseMode.HTML
+        )
+        return
+
+    # 5. Anti-Bypass Time
+    if flow_type == "antibypass":
+        bypass_text = (message.text or "").strip()
+        AWAITING_INPUT.pop(user_id, None)
+
+        try:
+            bypass_sec = int(bypass_text)
+        except Exception:
+            bypass_sec = 12
+
+        await db.update_verify_step_config(step, {
+            "anti_bypass_time": bypass_sec
+        })
+
+        btn = [[InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}")]]
+        await message.reply_text(
+            "<b>SUCCESSFULLY SET ANTI-BYPASS TIME ✅</b>",
+            reply_markup=InlineKeyboardMarkup(btn),
+            parse_mode=enums.ParseMode.HTML
+        )
+        return
+
+    # 6. Verify Text
+    if flow_type == "text":
+        raw_text = message.text.html if hasattr(message.text, 'html') and message.text.html else (message.text or "")
+        AWAITING_INPUT.pop(user_id, None)
+
+        if not raw_text:
+            return await message.reply_text("❌ Text message cannot be empty.")
+
+        await db.update_verify_step_config(step, {
+            "text": raw_text
+        })
+
+        btn = [[InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}")]]
+        await message.reply_text(
+            "<b>SUCCESSFULLY SET VERIFY TEXT ✅</b>",
+            reply_markup=InlineKeyboardMarkup(btn),
+            parse_mode=enums.ParseMode.HTML
+        )
+        return
+
+    # 7. Verify Pic
+    if flow_type == "pic":
+        pic_url = ""
+        if message.photo:
+            pic_url = message.photo.file_id
+        elif message.text and (message.text.startswith("http://") or message.text.startswith("https://")):
+            pic_url = message.text.strip()
+        else:
+            return await message.reply_text("❌ Please send a photo directly or provide an image link.")
+
+        AWAITING_INPUT.pop(user_id, None)
+        await db.update_verify_step_config(step, {
+            "pic": pic_url
+        })
+
+        btn = [[InlineKeyboardButton("‹ BACK", callback_data=f"vmenu_{step}")]]
+        await message.reply_text(
+            "<b>SUCCESSFULLY SET VERIFY PIC ✅</b>",
+            reply_markup=InlineKeyboardMarkup(btn),
+            parse_mode=enums.ParseMode.HTML
+        )
+        return
+
+    # 8. Log Channel
+    if flow_type == "log_channel":
+        AWAITING_INPUT.pop(user_id, None)
+        target_channel_id = None
+
+        if message.forward_from_chat:
+            target_channel_id = message.forward_from_chat.id
+        elif message.text:
+            cleaned = message.text.strip()
             try:
-                seconds = int(message.text.strip())
-                if seconds <= 0:
-                    raise ValueError()
-            except Exception:
-                return await message.reply_text("❌ Please enter a valid positive number in seconds (e.g. <code>1200</code> for 20m, <code>86400</code> for 24h).")
+                target_channel_id = int(cleaned)
+            except ValueError:
+                pass
 
-            await db.update_verify_step_config(step, {"time": seconds})
-            await message.reply_text(
-                f"✅ <b>{ord_name} Verify Time Updated to:</b> <code>{format_verify_time_display(seconds)}</code>",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"‹ BACK TO {ord_name} VERIFY", callback_data=f"vsub_{step}_time")]])
-            )
+        if not target_channel_id:
+            return await message.reply_text("❌ <b>Invalid Channel ID!</b> Please send numeric ID like <code>-1001234567890</code>.")
 
-        elif action == "antibypass":
-            try:
-                seconds = int(message.text.strip())
-                if seconds < 0:
-                    raise ValueError()
-            except Exception:
-                return await message.reply_text("❌ Please enter a valid number of seconds (e.g. <code>12</code>).")
+        try:
+            chat = await client.get_chat(target_channel_id)
+            me = await client.get_me()
+            member = await chat.get_member(me.id)
+            if member.status not in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]:
+                return await message.reply_text("❌ The bot is not an admin in that channel! Please promote the bot to Admin and try again.")
+        except Exception as e:
+            return await message.reply_text(f"❌ Error accessing channel: <code>{e}</code>\nMake sure bot is admin with post permissions!")
 
-            await db.update_verify_step_config(step, {"anti_bypass_time": seconds})
-            await message.reply_text(
-                f"✅ <b>{ord_name} Anti-Bypass Time Set to:</b> <code>{seconds}s</code>",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"‹ BACK TO {ord_name} VERIFY", callback_data=f"vsub_{step}_antibypass")]])
-            )
-
-        elif action == "text":
-            raw_text = message.text.html if hasattr(message.text, 'html') and message.text.html else (message.text or "")
-            if not raw_text:
-                return await message.reply_text("❌ Please send text message content.")
-            await db.update_verify_step_config(step, {"text": raw_text})
-            await message.reply_text(
-                f"✅ <b>{ord_name} Verify Text Updated!</b>",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"‹ BACK TO {ord_name} VERIFY", callback_data=f"vsub_{step}_text")]])
-            )
-
-        elif action == "pic":
-            pic_url = ""
-            if message.photo:
-                pic_url = message.photo.file_id
-            elif message.text and (message.text.startswith("http://") or message.text.startswith("https://")):
-                pic_url = message.text.strip()
-            else:
-                return await message.reply_text("❌ Please send a photo directly or provide an image URL.")
-
-            await db.update_verify_step_config(step, {"pic": pic_url})
-            await message.reply_text(
-                f"✅ <b>{ord_name} Verify Picture Updated!</b>",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"‹ BACK TO {ord_name} VERIFY", callback_data=f"vsub_{step}_pic")]])
-            )
+        await db.set_verify_log_channel(target_channel_id)
+        btn = [[InlineKeyboardButton("‹ BACK", callback_data="vmenu_log_channel")]]
+        await message.reply_text(
+            "<b>SUCCESSFULLY SET VERIFY LOG CHANNEL ✅</b>",
+            reply_markup=InlineKeyboardMarkup(btn),
+            parse_mode=enums.ParseMode.HTML
+        )
+        return
