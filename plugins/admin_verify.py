@@ -18,7 +18,7 @@ from Script import script
 
 logger = logging.getLogger(__name__)
 
-# State tracking for interactive admin inputs (Memory cache + MongoDB backed)
+# State tracking for interactive admin inputs (In-memory + MongoDB backed)
 AWAITING_INPUT = {}
 
 STEP_NAMES = {
@@ -830,8 +830,8 @@ async def vact_set_log_channel_cb(client: Client, query: CallbackQuery):
 
 @Client.on_message(filters.command("cancel") & filters.private, group=-5)
 async def cancel_input_cmd(client: Client, message: Message):
-    user_id = message.from_user.id
-    if not is_admin(user_id):
+    user_id = message.from_user.id if message.from_user else None
+    if not user_id or not is_admin(user_id):
         return
 
     state = AWAITING_INPUT.pop(user_id, None)
@@ -915,12 +915,19 @@ async def handle_direct_shortner_cmd(client: Client, message: Message, step: int
 # 8. Incoming Message Processor (group=-5 with highest priority)
 # =========================================================================
 
-@Client.on_message(filters.private & filters.incoming & ~filters.command(["start", "admin", "adminpanel", "settings", "cancel"]), group=-5)
+@Client.on_message(filters.private & ~filters.bot, group=-5)
 async def verify_settings_interactive_listener(client: Client, message: Message):
     user_id = message.from_user.id if message.from_user else None
     if not user_id or not is_admin(user_id):
         message.continue_propagation()
         return
+
+    # Pass through standard menu commands so user can always open admin menu
+    if message.text and message.text.startswith(("/", "!", ".")):
+        cmd = message.text.split()[0].lower().lstrip("/!.")
+        if cmd in ["start", "admin", "adminpanel", "settings", "cancel", "set_shortner", "set_shortener", "setshortlink", "set_shortner_1", "set_shortner_2", "set_shortner_3", "set_shortener_1", "set_shortener_2", "set_shortener_3"]:
+            message.continue_propagation()
+            return
 
     # 1. Fetch state from memory or MongoDB
     state = AWAITING_INPUT.get(user_id)
@@ -928,12 +935,10 @@ async def verify_settings_interactive_listener(client: Client, message: Message)
         state = await db.get_admin_verify_state(user_id)
 
     raw_text = (message.text or "").strip()
+    parts = raw_text.split()
 
     # 2. Direct Auto-Detection: If admin sends "domain.com api_key" or "http://domain.com api_key" in private chat
-    # Even if state was not initiated!
-    parts = raw_text.split()
     if not state and len(parts) >= 2 and ("." in parts[0] or parts[0].startswith("http")):
-        # Auto-configure Step 1 Shortener
         cleaned_url = clean_domain(parts[0])
         api_key = parts[1].strip()
         await db.update_verify_step_config(1, {
