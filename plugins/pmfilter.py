@@ -89,7 +89,7 @@ async def pm_text(bot, message):
         pass
     try:
         from plugins.dump_manager import ADMIN_DUMP_STATE
-        if user_id in ADMIN_DUMP_STATE:
+        if user_id in ADMIN_DUMP_STATE or (await db.get_admin_dump_state(user_id)):
             return
     except Exception:
         pass

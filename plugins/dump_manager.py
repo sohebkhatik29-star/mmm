@@ -45,15 +45,12 @@ CURRENT_DUMP = {
 }
 
 
-async def is_admin(user_id: int) -> bool:
+def is_admin(user_id: int) -> bool:
     try:
         uid = int(user_id)
         if uid in ADMINS or str(uid) in [str(a) for a in ADMINS]:
             return True
         if uid in INITIAL_ADMINS or str(uid) in [str(a) for a in INITIAL_ADMINS]:
-            return True
-        custom = await db.get_custom_admin(uid)
-        if custom:
             return True
         return False
     except Exception:
@@ -125,7 +122,7 @@ async def get_total_db_files_count() -> int:
 
 @Client.on_message(filters.command(["dump", "dump_settings", "dumpfiles"]) & filters.private)
 async def dump_settings_cmd(client: Client, message: Message):
-    if not (await is_admin(message.from_user.id)):
+    if not is_admin(message.from_user.id):
         return await message.reply_text("⛔️ <b>Access Denied:</b> This command is restricted to Bot Administrators only.")
     
     ADMIN_DUMP_STATE.pop(message.from_user.id, None)
@@ -135,7 +132,7 @@ async def dump_settings_cmd(client: Client, message: Message):
 
 @Client.on_callback_query(filters.regex(r"^dump_settings_panel$"))
 async def dump_settings_panel_cb(client: Client, query: CallbackQuery):
-    if not (await is_admin(query.from_user.id)):
+    if not is_admin(query.from_user.id):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
     
     ADMIN_DUMP_STATE.pop(query.from_user.id, None)
@@ -213,7 +210,7 @@ async def show_dump_panel(client: Client, message: Message):
 
 @Client.on_callback_query(filters.regex(r"^dump_start_prompt$"))
 async def dump_start_prompt_cb(client: Client, query: CallbackQuery):
-    if not (await is_admin(query.from_user.id)):
+    if not is_admin(query.from_user.id):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
     
     if CURRENT_DUMP["is_running"]:
@@ -248,7 +245,7 @@ async def dump_start_prompt_cb(client: Client, query: CallbackQuery):
 
 @Client.on_callback_query(filters.regex(r"^dump_caption_menu$"))
 async def dump_caption_menu_cb(client: Client, query: CallbackQuery):
-    if not (await is_admin(query.from_user.id)):
+    if not is_admin(query.from_user.id):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
     
     ADMIN_DUMP_STATE.pop(query.from_user.id, None)
@@ -296,7 +293,7 @@ async def dump_caption_menu_cb(client: Client, query: CallbackQuery):
 
 @Client.on_callback_query(filters.regex(r"^dump_caption_set$"))
 async def dump_caption_set_cb(client: Client, query: CallbackQuery):
-    if not (await is_admin(query.from_user.id)):
+    if not is_admin(query.from_user.id):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
     
     state_payload = {
@@ -324,7 +321,7 @@ async def dump_caption_set_cb(client: Client, query: CallbackQuery):
 
 @Client.on_callback_query(filters.regex(r"^dump_caption_reset$"))
 async def dump_caption_reset_cb(client: Client, query: CallbackQuery):
-    if not (await is_admin(query.from_user.id)):
+    if not is_admin(query.from_user.id):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
     
     await db.delete_dump_caption()
@@ -345,10 +342,10 @@ async def dump_caption_reset_cb(client: Client, query: CallbackQuery):
 
 
 # =========================================================================
-# Unified Input Handler for Dump Actions (Group -6 highest priority)
+# Unified Input Handler for Dump Actions (Group 4)
 # =========================================================================
 
-@Client.on_message(filters.private & ~filters.bot, group=-6)
+@Client.on_message(filters.private & ~filters.bot & filters.incoming, group=4)
 async def handle_dump_admin_inputs(client: Client, message: Message):
     user_id = message.from_user.id if message.from_user else None
     if not user_id:
@@ -358,41 +355,32 @@ async def handle_dump_admin_inputs(client: Client, message: Message):
     state_info = ADMIN_DUMP_STATE.get(user_id)
     if not state_info:
         state_info = await db.get_admin_dump_state(user_id)
+        if state_info:
+            ADMIN_DUMP_STATE[user_id] = state_info
     
     if not state_info:
         return
 
-    if not (await is_admin(user_id)):
+    if not is_admin(user_id):
         ADMIN_DUMP_STATE.pop(user_id, None)
         await db.clear_admin_dump_state(user_id)
         return
 
-    message.stop_propagation()
+    try:
+        message.stop_propagation()
+    except Exception:
+        pass
 
     action = state_info.get("action")
     prompt_msg_id = state_info.get("prompt_msg_id")
-
-    # Helper function to delete input message and previous prompt cleanly
-    async def cleanup_chat():
-        try:
-            await message.delete()
-        except Exception:
-            pass
-        if prompt_msg_id:
-            try:
-                await client.delete_messages(chat_id=message.chat.id, message_ids=prompt_msg_id)
-            except Exception:
-                pass
 
     # Cancel command check
     if message.text and message.text.strip().lower() in ["/cancel", "cancel"]:
         ADMIN_DUMP_STATE.pop(user_id, None)
         await db.clear_admin_dump_state(user_id)
-        await cleanup_chat()
         text = "🚫 <b>Dump operation cancelled.</b>"
         buttons = [[InlineKeyboardButton("« Back to Dump Menu", callback_data="dump_settings_panel")]]
-        return await client.send_message(
-            chat_id=message.chat.id,
+        return await message.reply_text(
             text=text,
             reply_markup=InlineKeyboardMarkup(buttons),
             parse_mode=enums.ParseMode.HTML
@@ -412,7 +400,6 @@ async def handle_dump_admin_inputs(client: Client, message: Message):
             await db.set_dump_caption(raw_caption)
             ADMIN_DUMP_STATE.pop(user_id, None)
             await db.clear_admin_dump_state(user_id)
-            await cleanup_chat()
 
             success_text = (
                 "✅ <b><u>Dump File Caption Saved Successfully!</u></b>\n\n"
@@ -423,8 +410,7 @@ async def handle_dump_admin_inputs(client: Client, message: Message):
                 [InlineKeyboardButton("📝 View Caption Menu", callback_data="dump_caption_menu")],
                 [InlineKeyboardButton("« Back to Dump Menu", callback_data="dump_settings_panel")]
             ]
-            return await client.send_message(
-                chat_id=message.chat.id,
+            return await message.reply_text(
                 text=success_text,
                 reply_markup=InlineKeyboardMarkup(buttons),
                 parse_mode=enums.ParseMode.HTML
@@ -441,94 +427,108 @@ async def handle_dump_admin_inputs(client: Client, message: Message):
 
         if message.forward_from_chat:
             target_chat_identifier = message.forward_from_chat.id
+        elif hasattr(message, "forward_origin") and message.forward_origin and hasattr(message.forward_origin, "chat") and message.forward_origin.chat:
+            target_chat_identifier = message.forward_origin.chat.id
         elif message.text:
             raw_text = message.text.strip()
+            # Numeric Channel ID (e.g. -1004372863755)
             if re.match(r"^-100\d+$", raw_text) or re.match(r"^-\d+$", raw_text):
                 target_chat_identifier = int(raw_text)
+            # Username (@channel)
             elif raw_text.startswith("@"):
                 target_chat_identifier = raw_text
+            # Private invite links
+            elif "t.me/+" in raw_text or "t.me/joinchat/" in raw_text:
+                return await message.reply_text(
+                    "⚠️ <b>Private Invite Link Detected!</b>\n\n"
+                    "Telegram bot private invite links (<code>t.me/+...</code>) se direct channel access nahi kar sakta.\n\n"
+                    "👉 <b>Channel kaise connect karein:</b>\n"
+                    "1. Bot ko apne target channel me <b>Administrator</b> banayein (sirf Subscriber nahi, Admin rights me <b>'Post Messages'</b> ON hona zaroori hai).\n"
+                    "2. Fir channel se koi message yahan <b>Forward</b> karein, ya Channel ID (jaise <code>-1004372863755</code>) bhejein.\n\n"
+                    "<i>Type /cancel to cancel.</i>",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="dump_settings_panel")]])
+                )
+            # Public t.me link
             elif "t.me/" in raw_text:
                 clean_url = raw_text.split("?")[0].rstrip("/")
-                if "/+" in clean_url or "/joinchat/" in clean_url:
-                    target_chat_identifier = clean_url
-                else:
-                    parts = clean_url.split("/")
-                    if parts:
-                        last_part = parts[-1]
-                        if not last_part.isdigit():
-                            target_chat_identifier = f"@{last_part}"
-                        else:
-                            target_chat_identifier = clean_url
+                parts = clean_url.split("/")
+                if parts:
+                    last_part = parts[-1]
+                    if not last_part.isdigit():
+                        target_chat_identifier = f"@{last_part}"
+                    else:
+                        target_chat_identifier = clean_url
             else:
                 target_chat_identifier = raw_text
 
         if not target_chat_identifier:
             return await message.reply_text(
-                "❌ <b>Invalid Input!</b>\n\nPlease forward a message from your channel or send a valid Channel ID / Username.\nType /cancel to cancel."
+                "❌ <b>Invalid Input!</b>\n\n"
+                "Kripya target channel se koi message forward karein ya Channel ID (jaise <code>-1004372863755</code>) bhejein.\n\n"
+                "Type /cancel to cancel.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="dump_settings_panel")]])
             )
 
-        # Clean previous input and prompt
-        await cleanup_chat()
-
-        status_msg = await client.send_message(
-            chat_id=message.chat.id,
-            text="🔍 <b>Verifying Channel & Bot Admin Permissions...</b> Please wait..."
-        )
+        status_msg = await message.reply_text("🔍 <b>Verifying Channel & Admin Permissions...</b> Please wait...")
 
         try:
             target_chat = await client.get_chat(target_chat_identifier)
         except Exception as e:
             logger.error(f"Failed to fetch chat {target_chat_identifier}: {e}")
-            text = (
+            err_text = (
                 "❌ <b>Channel Access Failed!</b>\n\n"
-                f"<b>Details:</b> <code>{e}</code>\n\n"
-                "👉 <b>Please ensure:</b>\n"
-                "1. Bot is added to the channel as an <b>Admin</b>.\n"
-                "2. Channel ID / Username is typed correctly."
+                f"<b>Error Details:</b> <code>{e}</code>\n\n"
+                "👉 <b>Important Requirements:</b>\n"
+                "1. Bot ko us channel me <b>Administrator</b> banayein ('Post Messages' permission ke sath).\n"
+                "<i>(Note: Channel me sirf Member/Subscriber add karne se bot ko access nahi milta. Settings ➔ Administrators ➔ Add Admin me jaake bot ko Administrator banayein!)</i>\n"
+                "2. Channel ID sahi check karein.\n\n"
+                "Bot ko Admin banane ke baad dubara ID bhejein ya Try Again karein."
             )
             buttons = [
                 [InlineKeyboardButton("🔄 Try Again", callback_data="dump_start_prompt")],
                 [InlineKeyboardButton("« Back to Dump Menu", callback_data="dump_settings_panel")]
             ]
-            return await safe_edit_or_replace(client, status_msg, text, reply_markup=InlineKeyboardMarkup(buttons))
+            return await status_msg.edit_text(err_text, reply_markup=InlineKeyboardMarkup(buttons))
 
-        # Verify if Bot is an admin in target chat
+        # Check bot admin status in target chat
         try:
-            bot_user = await client.get_me()
-            member = await client.get_chat_member(target_chat.id, bot_user.id)
-            
-            is_bot_admin = member.status in [
-                enums.ChatMemberStatus.ADMINISTRATOR,
-                enums.ChatMemberStatus.OWNER
-            ]
-            can_post = True
-            if member.status == enums.ChatMemberStatus.ADMINISTRATOR and hasattr(member, "privileges") and member.privileges:
-                can_post = bool(member.privileges.can_post_messages)
-                
-            if not is_bot_admin or not can_post:
-                text = (
-                    "❌ <b>Sorry, Bot is NOT an Admin!</b>\n\n"
-                    f"I am in <b>{target_chat.title}</b> (<code>{target_chat.id}</code>), but I do not have permission to post messages.\n\n"
-                    "👉 <b>Please promote the bot to Administrator with 'Post Messages' permission enabled and try again.</b>"
+            bot_member = await client.get_chat_member(target_chat.id, "me")
+            if bot_member.status not in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]:
+                return await status_msg.edit_text(
+                    f"❌ <b>Bot is NOT an Admin in {target_chat.title}!</b>\n\n"
+                    f"Bot channel me subscriber/member hai, lekin <b>Administrator</b> nahi hai!\n\n"
+                    f"👉 <b>Channel Settings ➔ Administrators ➔ Add Administrator</b> me jayein, bot ko select karein aur <b>'Post Messages'</b> ON karein.\n\n"
+                    f"Fir dubara message forward karein ya ID bhejein.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🔄 Try Again", callback_data="dump_start_prompt")],
+                        [InlineKeyboardButton("« Back to Dump Menu", callback_data="dump_settings_panel")]
+                    ])
                 )
-                buttons = [
+            
+            can_post = True
+            if bot_member.status == enums.ChatMemberStatus.ADMINISTRATOR and hasattr(bot_member, "privileges") and bot_member.privileges:
+                can_post = bool(bot_member.privileges.can_post_messages)
+                
+            if not can_post:
+                return await status_msg.edit_text(
+                    f"❌ <b>Missing Permission: Post Messages!</b>\n\n"
+                    f"Bot <b>{target_chat.title}</b> me Admin to hai, lekin <b>'Post Messages'</b> permission band hai.\n\n"
+                    f"👉 Channel Settings ➔ Administrators ➔ Bot Permissions me <b>'Post Messages'</b> ON karke dubara try karein.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🔄 Try Again", callback_data="dump_start_prompt")],
+                        [InlineKeyboardButton("« Back to Dump Menu", callback_data="dump_settings_panel")]
+                    ])
+                )
+        except Exception as e:
+            logger.error(f"Bot permission check error: {e}")
+            return await status_msg.edit_text(
+                f"❌ <b>Admin Check Error:</b> <code>{e}</code>\n\n"
+                f"Make sure bot is an Administrator in <b>{target_chat.title}</b>!",
+                reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("🔄 Try Again", callback_data="dump_start_prompt")],
                     [InlineKeyboardButton("« Back to Dump Menu", callback_data="dump_settings_panel")]
-                ]
-                return await safe_edit_or_replace(client, status_msg, text, reply_markup=InlineKeyboardMarkup(buttons))
-                
-        except RPCError as e:
-            logger.error(f"Bot permission check error: {e}")
-            text = (
-                "❌ <b>Admin Check Error!</b>\n\n"
-                f"I cannot access member permissions in <b>{target_chat.title}</b> (<code>{target_chat.id}</code>).\n\n"
-                "Please ensure the bot is added as an <b>Administrator</b> with <b>Post Messages</b> enabled."
+                ])
             )
-            buttons = [
-                [InlineKeyboardButton("🔄 Try Again", callback_data="dump_start_prompt")],
-                [InlineKeyboardButton("« Back to Dump Menu", callback_data="dump_settings_panel")]
-            ]
-            return await safe_edit_or_replace(client, status_msg, text, reply_markup=InlineKeyboardMarkup(buttons))
 
         ADMIN_DUMP_STATE.pop(user_id, None)
         await db.clear_admin_dump_state(user_id)
@@ -548,7 +548,7 @@ async def handle_dump_admin_inputs(client: Client, message: Message):
                 InlineKeyboardButton("❌ No, Cancel", callback_data="dump_settings_panel")
             ]
         ]
-        await safe_edit_or_replace(client, status_msg, confirm_text, reply_markup=InlineKeyboardMarkup(buttons))
+        return await status_msg.edit_text(confirm_text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 # =========================================================================
@@ -557,7 +557,7 @@ async def handle_dump_admin_inputs(client: Client, message: Message):
 
 @Client.on_callback_query(filters.regex(r"^dump_confirm_start#"))
 async def dump_confirm_start_cb(client: Client, query: CallbackQuery):
-    if not (await is_admin(query.from_user.id)):
+    if not is_admin(query.from_user.id):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
     
     if CURRENT_DUMP["is_running"]:
@@ -838,7 +838,7 @@ async def run_database_dump_worker(client: Client):
 
 @Client.on_callback_query(filters.regex(r"^dump_refresh_status$"))
 async def dump_refresh_status_cb(client: Client, query: CallbackQuery):
-    if not (await is_admin(query.from_user.id)):
+    if not is_admin(query.from_user.id):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
     
     await show_dump_panel(client, query.message)
@@ -847,7 +847,7 @@ async def dump_refresh_status_cb(client: Client, query: CallbackQuery):
 
 @Client.on_callback_query(filters.regex(r"^dump_stop_confirm$"))
 async def dump_stop_confirm_cb(client: Client, query: CallbackQuery):
-    if not (await is_admin(query.from_user.id)):
+    if not is_admin(query.from_user.id):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
     
     if not CURRENT_DUMP["is_running"]:
@@ -870,7 +870,7 @@ async def dump_stop_confirm_cb(client: Client, query: CallbackQuery):
 
 @Client.on_callback_query(filters.regex(r"^dump_stop_execute$"))
 async def dump_stop_execute_cb(client: Client, query: CallbackQuery):
-    if not (await is_admin(query.from_user.id)):
+    if not is_admin(query.from_user.id):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
     
     if not CURRENT_DUMP["is_running"]:
@@ -882,7 +882,7 @@ async def dump_stop_execute_cb(client: Client, query: CallbackQuery):
 
 @Client.on_message(filters.command(["stop_dump", "stopdump"]) & filters.private)
 async def stop_dump_cmd(client: Client, message: Message):
-    if not (await is_admin(message.from_user.id)):
+    if not is_admin(message.from_user.id):
         return await message.reply_text("⛔️ <b>Access Denied:</b> Administrators only.")
     
     if not CURRENT_DUMP["is_running"]:
