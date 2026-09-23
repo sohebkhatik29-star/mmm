@@ -194,14 +194,15 @@ async def get_search_results(chat_id, query, file_type=None, max_results=None, o
     # The rest of the function remains the same, using parallel queries.
     if ULTRA_FAST_MODE:
         limit = max_results + 1
-        find_tasks = [Media.find(filter_mongo).sort("$natural", -1).skip(offset).limit(limit).to_list(length=limit)]
+        find_tasks = [Media.find(filter_mongo).sort([("file_name", 1)]).skip(offset).limit(limit).to_list(length=limit)]
         if MULTIPLE_DB:
-            find_tasks.append(Media2.find(filter_mongo).sort("$natural", -1).skip(offset).limit(limit).to_list(length=limit))
+            find_tasks.append(Media2.find(filter_mongo).sort([("file_name", 1)]).skip(offset).limit(limit).to_list(length=limit))
         
         results = await asyncio.gather(*find_tasks)
         files = results[0]
         if MULTIPLE_DB and len(results) > 1:
             files.extend(results[1])
+            files.sort(key=lambda x: str(x.get("file_name", "")).lower())
         
         files = files[:limit]
 
@@ -213,11 +214,11 @@ async def get_search_results(chat_id, query, file_type=None, max_results=None, o
         total_results = offset + len(files) + (1 if has_next_page else 0)
     else:
         count_tasks = [Media.count_documents(filter_mongo)]
-        find_tasks = [Media.find(filter_mongo).sort("$natural", -1).skip(offset).limit(max_results).to_list(length=max_results)]
+        find_tasks = [Media.find(filter_mongo).sort([("file_name", 1)]).skip(offset).limit(max_results).to_list(length=max_results)]
 
         if MULTIPLE_DB:
             count_tasks.append(Media2.count_documents(filter_mongo))
-            find_tasks.append(Media2.find(filter_mongo).sort("$natural", -1).skip(offset).limit(max_results).to_list(length=max_results))
+            find_tasks.append(Media2.find(filter_mongo).sort([("file_name", 1)]).skip(offset).limit(max_results).to_list(length=max_results))
         
         count_results, find_results = await asyncio.gather(
             asyncio.gather(*count_tasks),
@@ -228,6 +229,7 @@ async def get_search_results(chat_id, query, file_type=None, max_results=None, o
         files = find_results[0]
         if MULTIPLE_DB and len(find_results) > 1:
             files.extend(find_results[1])
+            files.sort(key=lambda x: str(x.get("file_name", "")).lower())
         
         files = files[:max_results]
         

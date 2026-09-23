@@ -742,8 +742,8 @@ async def run_database_dump_worker(client: Client):
             # Update live UI
             await update_live_status()
 
-            # Fast delay (0.6s) between uploads for high speed + telegram safety
-            await asyncio.sleep(0.6)
+            # Fast delay (0.2s) between uploads for high speed + telegram safety
+            await asyncio.sleep(0.2)
 
         return True
 
