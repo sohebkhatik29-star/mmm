@@ -736,7 +736,20 @@ class Database:
     async def clear_admin_verify_state(self, user_id: int):
         await self.verify_config.delete_one({'_id': f"state_{int(user_id)}"})
 
-     
+    async def get_dump_caption(self):
+        doc = await self.misc.find_one({'_id': 'dump_custom_caption'})
+        return doc.get('caption') if doc else None
+
+    async def set_dump_caption(self, caption: str):
+        await self.misc.update_one(
+            {'_id': 'dump_custom_caption'},
+            {'$set': {'caption': caption, 'updated_at': datetime.datetime.utcnow()}},
+            upsert=True
+        )
+
+    async def delete_dump_caption(self):
+        await self.misc.delete_one({'_id': 'dump_custom_caption'})
+
 db = Database(DATABASE_URI, DATABASE_NAME)    
 db2 = Database(DATABASE_URI2, DATABASE_NAME)
 

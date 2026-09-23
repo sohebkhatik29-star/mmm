@@ -20,6 +20,7 @@ from pyrogram.errors import (
 )
 from info import ADMINS, INITIAL_ADMINS, MULTIPLE_DB, CUSTOM_FILE_CAPTION
 from database.ia_filterdb import Media, Media2
+from database.users_chats_db import db
 from utils import get_size, clean_filename
 
 logger = logging.getLogger(__name__)
@@ -140,6 +141,8 @@ async def dump_settings_panel_cb(client: Client, query: CallbackQuery):
 
 async def show_dump_panel(client: Client, message: Message):
     total_db_files = await get_total_db_files_count()
+    custom_caption = await db.get_dump_caption()
+    caption_status = "Custom" if custom_caption else "Default"
     
     if CURRENT_DUMP["is_running"]:
         elapsed = time.time() - CURRENT_DUMP["start_time"]
@@ -159,7 +162,7 @@ async def show_dump_panel(client: Client, message: Message):
             f"⏳ <b>Remaining:</b> <code>{max(0, total - dumped - failed):,}</code>\n"
             f"📈 <b>Progress:</b> <code>{pct:.1f}%</code> [{pbar}]\n"
             f"⏱ <b>Elapsed Time:</b> <code>{format_duration(elapsed)}</code>\n\n"
-            "⚡ <i>Files are being sent smoothly with anti-flood protection.</i>"
+            "⚡ <i>Files are sorted by Name (A-Z) so all qualities of the same movie appear together!</i>"
         )
         buttons = [
             [
@@ -175,20 +178,23 @@ async def show_dump_panel(client: Client, message: Message):
             "📦 <b><u>Database Channel Dump Management</u></b>\n\n"
             "Welcome to the Database Export & Channel Dump Manager.\n\n"
             f"📂 <b>Total Files in MongoDB:</b> <code>{total_db_files:,} files</code>\n"
+            f"📝 <b>Dump Caption:</b> <code>{caption_status}</code>\n"
             "⚪ <b>Current Status:</b> <code>Idle (No active dump)</code>\n\n"
-            "💡 <b>How it works:</b>\n"
-            "1. Click <b>'Start Dump'</b> below.\n"
-            "2. Forward any message from your target channel (or send Channel ID).\n"
-            "3. Bot will verify admin rights, ask confirmation, and start uploading all database files.\n"
-            "4. Once done, the target channel will be reset automatically."
+            "💡 <b>Features:</b>\n"
+            "• <b>Alphabetical Sort (A-Z):</b> Same movie ki saari qualities (480p, 720p, 1080p) ek sath sequence me aayengi.\n"
+            "• <b>Fast Speed:</b> High speed uploads with automatic flood protection.\n"
+            "• <b>Custom Caption:</b> Aap dump hone wali files ke liye apna caption set kar sakte hain."
         )
         buttons = [
             [
                 InlineKeyboardButton("🚀 Start Dump", callback_data="dump_start_prompt"),
-                InlineKeyboardButton("📊 Dump Status", callback_data="dump_refresh_status")
+                InlineKeyboardButton("📝 ꜱᴇᴛ ᴅᴜᴍᴘ ᴄᴀᴘᴛɪᴏɴ", callback_data="dump_caption_menu")
             ],
             [
-                InlineKeyboardButton("« Back to Admin Menu", callback_data="admin_settings"),
+                InlineKeyboardButton("📊 Dump Status", callback_data="dump_refresh_status"),
+                InlineKeyboardButton("« Back to Admin Menu", callback_data="admin_settings")
+            ],
+            [
                 InlineKeyboardButton("⇋ Home ⇋", callback_data="start")
             ]
         ]
@@ -230,7 +236,105 @@ async def dump_start_prompt_cb(client: Client, query: CallbackQuery):
 
 
 # =========================================================================
-# Unified Input Handler for Dump Channel Setup (Group 3)
+# Step 2: Custom Dump Caption Management
+# =========================================================================
+
+@Client.on_callback_query(filters.regex(r"^dump_caption_menu$"))
+async def dump_caption_menu_cb(client: Client, query: CallbackQuery):
+    if not is_admin(query.from_user.id):
+        return await query.answer("⛔️ Access Denied!", show_alert=True)
+    
+    ADMIN_DUMP_STATE.pop(query.from_user.id, None)
+    custom_caption = await db.get_dump_caption()
+    
+    if custom_caption:
+        text = (
+            "📝 <b><u>Dump File Caption Settings</u></b>\n\n"
+            "✅ <b>Status:</b> Custom Caption is <b>ACTIVE</b>\n\n"
+            f"<b>Current Dump Caption:</b>\n<blockquote>{custom_caption}</blockquote>\n\n"
+            "📌 <b>Available Variables:</b>\n"
+            "• <code>{file_name}</code> - Name of the movie / file\n"
+            "• <code>{file_size}</code> - File size (e.g. 1.2 GB)\n"
+            "• <code>{file_caption}</code> - Original caption from database"
+        )
+        buttons = [
+            [
+                InlineKeyboardButton("🔄 Change Caption", callback_data="dump_caption_set"),
+                InlineKeyboardButton("🗑️ Reset to Default", callback_data="dump_caption_reset")
+            ],
+            [
+                InlineKeyboardButton("« Back to Dump Menu", callback_data="dump_settings_panel")
+            ]
+        ]
+    else:
+        text = (
+            "📝 <b><u>Dump File Caption Settings</u></b>\n\n"
+            "⚙️ <b>Status:</b> Using <b>DEFAULT / ORIGINAL CAPTION</b>\n\n"
+            "Files dumped to your channel will use their original name and size or bot caption.\n\n"
+            "📌 <b>Available Variables:</b>\n"
+            "• <code>{file_name}</code> - File Name\n"
+            "• <code>{file_size}</code> - File Size\n"
+            "• <code>{file_caption}</code> - Original Caption\n\n"
+            "Click below to set a custom caption for all dumped files:"
+        )
+        buttons = [
+            [InlineKeyboardButton("➕ Set Custom Caption", callback_data="dump_caption_set")],
+            [InlineKeyboardButton("« Back to Dump Menu", callback_data="dump_settings_panel")]
+        ]
+        
+    await safe_edit_or_replace(client, query.message, text, reply_markup=InlineKeyboardMarkup(buttons))
+    await query.answer()
+
+
+@Client.on_callback_query(filters.regex(r"^dump_caption_set$"))
+async def dump_caption_set_cb(client: Client, query: CallbackQuery):
+    if not is_admin(query.from_user.id):
+        return await query.answer("⛔️ Access Denied!", show_alert=True)
+    
+    ADMIN_DUMP_STATE[query.from_user.id] = {
+        "action": "await_dump_caption",
+        "prompt_msg_id": query.message.id
+    }
+    
+    text = (
+        "📝 <b><u>Set Custom Dump File Caption</u></b>\n\n"
+        "👉 <b>Apna naya Dump Caption yahan type karke bhejein.</b>\n\n"
+        "📌 <b>Available Variables:</b>\n"
+        "• <code>{file_name}</code> - Movie name\n"
+        "• <code>{file_size}</code> - File size (e.g. 700MB)\n"
+        "• <code>{file_caption}</code> - Original caption\n\n"
+        "<b>Example:</b>\n"
+        "<code>🎬 {file_name}\n📦 Size: {file_size}\n\n🌟 Join @YourChannel</code>\n\n"
+        "Send <code>/cancel</code> to cancel."
+    )
+    buttons = [[InlineKeyboardButton("❌ Cancel", callback_data="dump_caption_menu")]]
+    await safe_edit_or_replace(client, query.message, text, reply_markup=InlineKeyboardMarkup(buttons))
+    await query.answer()
+
+
+@Client.on_callback_query(filters.regex(r"^dump_caption_reset$"))
+async def dump_caption_reset_cb(client: Client, query: CallbackQuery):
+    if not is_admin(query.from_user.id):
+        return await query.answer("⛔️ Access Denied!", show_alert=True)
+    
+    await db.delete_dump_caption()
+    await query.answer("✅ Dump caption reset to default!", show_alert=True)
+    
+    ADMIN_DUMP_STATE.pop(query.from_user.id, None)
+    text = (
+        "📝 <b><u>Dump File Caption Settings</u></b>\n\n"
+        "⚙️ <b>Status:</b> Reset to <b>DEFAULT CAPTION</b>\n\n"
+        "Custom dump caption successfully remove ho gaya hai."
+    )
+    buttons = [
+        [InlineKeyboardButton("➕ Set Custom Caption", callback_data="dump_caption_set")],
+        [InlineKeyboardButton("« Back to Dump Menu", callback_data="dump_settings_panel")]
+    ]
+    await safe_edit_or_replace(client, query.message, text, reply_markup=InlineKeyboardMarkup(buttons))
+
+
+# =========================================================================
+# Unified Input Handler for Dump Actions (Group 3)
 # =========================================================================
 
 @Client.on_message(filters.private & ~filters.bot & filters.incoming, group=3)
@@ -240,9 +344,10 @@ async def handle_dump_admin_inputs(client: Client, message: Message):
         return
     
     state_info = ADMIN_DUMP_STATE.get(user_id)
-    if not state_info or state_info.get("action") != "await_dump_channel":
+    if not state_info:
         return
 
+    action = state_info.get("action")
     prompt_msg_id = state_info.get("prompt_msg_id")
 
     # Helper function to delete input message and previous prompt cleanly
@@ -261,7 +366,7 @@ async def handle_dump_admin_inputs(client: Client, message: Message):
     if message.text and message.text.strip().lower() in ["/cancel", "cancel"]:
         ADMIN_DUMP_STATE.pop(user_id, None)
         await cleanup_chat()
-        text = "🚫 <b>Dump setup cancelled.</b>"
+        text = "🚫 <b>Dump operation cancelled.</b>"
         buttons = [[InlineKeyboardButton("« Back to Dump Menu", callback_data="dump_settings_panel")]]
         return await client.send_message(
             chat_id=message.chat.id,
@@ -270,120 +375,159 @@ async def handle_dump_admin_inputs(client: Client, message: Message):
             parse_mode=enums.ParseMode.HTML
         )
 
-    target_chat_identifier = None
+    # -----------------------------------------------------------------
+    # State 1: Awaiting Custom Dump Caption
+    # -----------------------------------------------------------------
+    if action == "await_dump_caption":
+        if not message.text:
+            return await message.reply_text(
+                "❌ <b>Invalid Input!</b>\n\nPlease send text for the caption.\nType /cancel to cancel."
+            )
 
-    if message.forward_from_chat:
-        target_chat_identifier = message.forward_from_chat.id
-    elif message.text:
-        raw_text = message.text.strip()
-        if re.match(r"^-100\d+$", raw_text) or re.match(r"^-\d+$", raw_text):
-            target_chat_identifier = int(raw_text)
-        elif raw_text.startswith("@"):
-            target_chat_identifier = raw_text
-        elif "t.me/" in raw_text:
-            clean_url = raw_text.split("?")[0].rstrip("/")
-            if "/+" in clean_url or "/joinchat/" in clean_url:
-                target_chat_identifier = clean_url
+        new_caption = message.text.html if hasattr(message.text, 'html') else message.text
+        try:
+            await db.set_dump_caption(new_caption)
+            ADMIN_DUMP_STATE.pop(user_id, None)
+            await cleanup_chat()
+
+            success_text = (
+                "✅ <b><u>Dump File Caption Saved Successfully!</u></b>\n\n"
+                f"<b>Saved Preview:</b>\n<blockquote>{new_caption}</blockquote>\n\n"
+                "Ab jab bhi aap dump chalu karenge, files isi custom caption ke sath channel me upload hongi."
+            )
+            buttons = [
+                [InlineKeyboardButton("📝 View Caption Menu", callback_data="dump_caption_menu")],
+                [InlineKeyboardButton("« Back to Dump Menu", callback_data="dump_settings_panel")]
+            ]
+            return await client.send_message(
+                chat_id=message.chat.id,
+                text=success_text,
+                reply_markup=InlineKeyboardMarkup(buttons),
+                parse_mode=enums.ParseMode.HTML
+            )
+        except Exception as e:
+            logger.exception("Error saving dump caption: %s", e)
+            return await message.reply_text(f"❌ <b>Error:</b> <code>{e}</code>")
+
+    # -----------------------------------------------------------------
+    # State 2: Awaiting Target Channel
+    # -----------------------------------------------------------------
+    elif action == "await_dump_channel":
+        target_chat_identifier = None
+
+        if message.forward_from_chat:
+            target_chat_identifier = message.forward_from_chat.id
+        elif message.text:
+            raw_text = message.text.strip()
+            if re.match(r"^-100\d+$", raw_text) or re.match(r"^-\d+$", raw_text):
+                target_chat_identifier = int(raw_text)
+            elif raw_text.startswith("@"):
+                target_chat_identifier = raw_text
+            elif "t.me/" in raw_text:
+                clean_url = raw_text.split("?")[0].rstrip("/")
+                if "/+" in clean_url or "/joinchat/" in clean_url:
+                    target_chat_identifier = clean_url
+                else:
+                    parts = clean_url.split("/")
+                    if parts:
+                        last_part = parts[-1]
+                        if not last_part.isdigit():
+                            target_chat_identifier = f"@{last_part}"
+                        else:
+                            target_chat_identifier = clean_url
             else:
-                parts = clean_url.split("/")
-                if parts:
-                    last_part = parts[-1]
-                    if not last_part.isdigit():
-                        target_chat_identifier = f"@{last_part}"
-                    else:
-                        target_chat_identifier = clean_url
-        else:
-            target_chat_identifier = raw_text
+                target_chat_identifier = raw_text
 
-    if not target_chat_identifier:
-        return await message.reply_text(
-            "❌ <b>Invalid Input!</b>\n\nPlease forward a message from your channel or send a valid Channel ID / Username.\nType /cancel to cancel."
+        if not target_chat_identifier:
+            return await message.reply_text(
+                "❌ <b>Invalid Input!</b>\n\nPlease forward a message from your channel or send a valid Channel ID / Username.\nType /cancel to cancel."
+            )
+
+        # Clean previous input and prompt
+        await cleanup_chat()
+
+        status_msg = await client.send_message(
+            chat_id=message.chat.id,
+            text="🔍 <b>Verifying Channel & Bot Admin Permissions...</b> Please wait..."
         )
 
-    # Clean previous input and prompt
-    await cleanup_chat()
-
-    status_msg = await client.send_message(
-        chat_id=message.chat.id,
-        text="🔍 <b>Verifying Channel & Bot Admin Permissions...</b> Please wait..."
-    )
-
-    try:
-        target_chat = await client.get_chat(target_chat_identifier)
-    except Exception as e:
-        logger.error(f"Failed to fetch chat {target_chat_identifier}: {e}")
-        text = (
-            "❌ <b>Channel Access Failed!</b>\n\n"
-            f"<b>Details:</b> <code>{e}</code>\n\n"
-            "👉 <b>Please ensure:</b>\n"
-            "1. Bot is added to the channel as an <b>Admin</b>.\n"
-            "2. Channel ID / Username is typed correctly."
-        )
-        buttons = [
-            [InlineKeyboardButton("🔄 Try Again", callback_data="dump_start_prompt")],
-            [InlineKeyboardButton("« Back to Dump Menu", callback_data="dump_settings_panel")]
-        ]
-        return await safe_edit_or_replace(client, status_msg, text, reply_markup=InlineKeyboardMarkup(buttons))
-
-    # Verify if Bot is an admin in target chat
-    try:
-        bot_user = await client.get_me()
-        member = await client.get_chat_member(target_chat.id, bot_user.id)
-        
-        is_bot_admin = member.status in [
-            enums.ChatMemberStatus.ADMINISTRATOR,
-            enums.ChatMemberStatus.OWNER
-        ]
-        can_post = True
-        if member.status == enums.ChatMemberStatus.ADMINISTRATOR and hasattr(member, "privileges") and member.privileges:
-            can_post = bool(member.privileges.can_post_messages)
-            
-        if not is_bot_admin or not can_post:
+        try:
+            target_chat = await client.get_chat(target_chat_identifier)
+        except Exception as e:
+            logger.error(f"Failed to fetch chat {target_chat_identifier}: {e}")
             text = (
-                "❌ <b>Sorry, Bot is NOT an Admin!</b>\n\n"
-                f"I am in <b>{target_chat.title}</b> (<code>{target_chat.id}</code>), but I do not have permission to post messages.\n\n"
-                "👉 <b>Please promote the bot to Administrator with 'Post Messages' permission enabled and try again.</b>"
+                "❌ <b>Channel Access Failed!</b>\n\n"
+                f"<b>Details:</b> <code>{e}</code>\n\n"
+                "👉 <b>Please ensure:</b>\n"
+                "1. Bot is added to the channel as an <b>Admin</b>.\n"
+                "2. Channel ID / Username is typed correctly."
             )
             buttons = [
                 [InlineKeyboardButton("🔄 Try Again", callback_data="dump_start_prompt")],
                 [InlineKeyboardButton("« Back to Dump Menu", callback_data="dump_settings_panel")]
             ]
             return await safe_edit_or_replace(client, status_msg, text, reply_markup=InlineKeyboardMarkup(buttons))
+
+        # Verify if Bot is an admin in target chat
+        try:
+            bot_user = await client.get_me()
+            member = await client.get_chat_member(target_chat.id, bot_user.id)
             
-    except RPCError as e:
-        logger.error(f"Bot permission check error: {e}")
-        text = (
-            "❌ <b>Admin Check Error!</b>\n\n"
-            f"I cannot access member permissions in <b>{target_chat.title}</b> (<code>{target_chat.id}</code>).\n\n"
-            "Please ensure the bot is added as an <b>Administrator</b> with <b>Post Messages</b> enabled."
+            is_bot_admin = member.status in [
+                enums.ChatMemberStatus.ADMINISTRATOR,
+                enums.ChatMemberStatus.OWNER
+            ]
+            can_post = True
+            if member.status == enums.ChatMemberStatus.ADMINISTRATOR and hasattr(member, "privileges") and member.privileges:
+                can_post = bool(member.privileges.can_post_messages)
+                
+            if not is_bot_admin or not can_post:
+                text = (
+                    "❌ <b>Sorry, Bot is NOT an Admin!</b>\n\n"
+                    f"I am in <b>{target_chat.title}</b> (<code>{target_chat.id}</code>), but I do not have permission to post messages.\n\n"
+                    "👉 <b>Please promote the bot to Administrator with 'Post Messages' permission enabled and try again.</b>"
+                )
+                buttons = [
+                    [InlineKeyboardButton("🔄 Try Again", callback_data="dump_start_prompt")],
+                    [InlineKeyboardButton("« Back to Dump Menu", callback_data="dump_settings_panel")]
+                ]
+                return await safe_edit_or_replace(client, status_msg, text, reply_markup=InlineKeyboardMarkup(buttons))
+                
+        except RPCError as e:
+            logger.error(f"Bot permission check error: {e}")
+            text = (
+                "❌ <b>Admin Check Error!</b>\n\n"
+                f"I cannot access member permissions in <b>{target_chat.title}</b> (<code>{target_chat.id}</code>).\n\n"
+                "Please ensure the bot is added as an <b>Administrator</b> with <b>Post Messages</b> enabled."
+            )
+            buttons = [
+                [InlineKeyboardButton("🔄 Try Again", callback_data="dump_start_prompt")],
+                [InlineKeyboardButton("« Back to Dump Menu", callback_data="dump_settings_panel")]
+            ]
+            return await safe_edit_or_replace(client, status_msg, text, reply_markup=InlineKeyboardMarkup(buttons))
+
+        ADMIN_DUMP_STATE.pop(user_id, None)
+        total_files = await get_total_db_files_count()
+
+        confirm_text = (
+            "✅ <b><u>Channel Verified Successfully!</u></b>\n\n"
+            f"📢 <b>Target Channel:</b> <code>{target_chat.title}</code>\n"
+            f"🆔 <b>Channel ID:</b> <code>{target_chat.id}</code>\n"
+            f"📂 <b>Total Files to Dump:</b> <code>{total_files:,} files</code>\n"
+            "🔤 <b>Sort Order:</b> <code>Name Wise (A to Z)</code> (Same movie all qualities will come together!)\n\n"
+            "Are you ready to start dumping all stored files from the database into this channel?"
         )
         buttons = [
-            [InlineKeyboardButton("🔄 Try Again", callback_data="dump_start_prompt")],
-            [InlineKeyboardButton("« Back to Dump Menu", callback_data="dump_settings_panel")]
+            [
+                InlineKeyboardButton("✅ Yes, Start Dump", callback_data=f"dump_confirm_start#{target_chat.id}#{target_chat.title[:20]}"),
+                InlineKeyboardButton("❌ No, Cancel", callback_data="dump_settings_panel")
+            ]
         ]
-        return await safe_edit_or_replace(client, status_msg, text, reply_markup=InlineKeyboardMarkup(buttons))
-
-    ADMIN_DUMP_STATE.pop(user_id, None)
-    total_files = await get_total_db_files_count()
-
-    confirm_text = (
-        "✅ <b><u>Channel Verified Successfully!</u></b>\n\n"
-        f"📢 <b>Target Channel:</b> <code>{target_chat.title}</code>\n"
-        f"🆔 <b>Channel ID:</b> <code>{target_chat.id}</code>\n"
-        f"📂 <b>Total Files to Dump:</b> <code>{total_files:,} files</code>\n\n"
-        "Are you ready to start dumping all stored files from the database into this channel?"
-    )
-    buttons = [
-        [
-            InlineKeyboardButton("✅ Yes, Start Dump", callback_data=f"dump_confirm_start#{target_chat.id}#{target_chat.title[:20]}"),
-            InlineKeyboardButton("❌ No, Cancel", callback_data="dump_settings_panel")
-        ]
-    ]
-    await safe_edit_or_replace(client, status_msg, confirm_text, reply_markup=InlineKeyboardMarkup(buttons))
+        await safe_edit_or_replace(client, status_msg, confirm_text, reply_markup=InlineKeyboardMarkup(buttons))
 
 
 # =========================================================================
-# Step 2: Confirm Start Dump & Worker Execution
+# Step 3: Confirm Start Dump & Worker Execution
 # =========================================================================
 
 @Client.on_callback_query(filters.regex(r"^dump_confirm_start#"))
@@ -423,7 +567,7 @@ async def dump_confirm_start_cb(client: Client, query: CallbackQuery):
         f"⏳ <b>Remaining:</b> <code>{total_files:,}</code>\n"
         f"📈 <b>Progress:</b> <code>0.0%</code> [{create_progress_bar(0, total_files)}]\n"
         "⏱ <b>Elapsed Time:</b> <code>00m 00s</code>\n\n"
-        "⚡ <i>Dumping in progress... Files are being uploaded with anti-flood delay.</i>"
+        "⚡ <i>Files are sorted by Name (A-Z). Upload speed boosted with flood-safe streaming!</i>"
     )
     buttons = [
         [
@@ -440,11 +584,11 @@ async def dump_confirm_start_cb(client: Client, query: CallbackQuery):
 
 
 # =========================================================================
-# Background Worker: Stream all DB files to Target Channel
+# Background Worker: Stream all DB files sorted by Name (A-Z)
 # =========================================================================
 
 async def run_database_dump_worker(client: Client):
-    logger.info(f"Starting Database Dump to channel {CURRENT_DUMP['target_channel_id']}")
+    logger.info(f"Starting Database Dump to channel {CURRENT_DUMP['target_channel_id']} (Sorted by Name A-Z)")
     target_channel_id = CURRENT_DUMP["target_channel_id"]
     target_channel_title = CURRENT_DUMP["target_channel_title"]
     status_chat_id = CURRENT_DUMP["status_chat_id"]
@@ -452,10 +596,11 @@ async def run_database_dump_worker(client: Client):
     total = CURRENT_DUMP["total_files"]
     
     last_ui_update = time.time()
+    custom_dump_caption = await db.get_dump_caption()
     
     async def update_live_status():
         nonlocal last_ui_update
-        if time.time() - last_ui_update < 7:
+        if time.time() - last_ui_update < 5:
             return
         last_ui_update = time.time()
         dumped = CURRENT_DUMP["dumped_files"]
@@ -484,7 +629,7 @@ async def run_database_dump_worker(client: Client):
             f"📈 <b>Progress:</b> <code>{pct:.1f}%</code> [{pbar}]\n"
             f"⏱ <b>Elapsed Time:</b> <code>{format_duration(elapsed)}</code>\n"
             f"⌛ <b>Estimated Time Left (ETA):</b> <code>{eta_str}</code>\n\n"
-            "⚡ <i>Dumping in progress... Safe flood limits applied.</i>"
+            "⚡ <i>Uploading files sorted by Name (A-Z) with fast speed!</i>"
         )
         buttons = [
             [
@@ -517,7 +662,17 @@ async def run_database_dump_worker(client: Client):
             file_name = clean_filename(getattr(doc, "file_name", "File"))
             file_size = get_size(getattr(doc, "file_size", 0))
             
-            if raw_caption:
+            # Format Caption: Custom Dump Caption > Custom Bot Caption > Raw/Default
+            if custom_dump_caption:
+                try:
+                    caption = custom_dump_caption.format(
+                        file_name=file_name,
+                        file_size=file_size,
+                        file_caption=raw_caption or file_name
+                    )
+                except Exception:
+                    caption = f"📁 <b>{file_name}</b> [{file_size}]"
+            elif raw_caption:
                 caption = raw_caption
             elif CUSTOM_FILE_CAPTION:
                 try:
@@ -533,7 +688,7 @@ async def run_database_dump_worker(client: Client):
 
             cover = getattr(doc, "cover", None)
 
-            # Attempt sending cached media
+            # Fast sending with instant FloodWait retry
             sent = False
             for attempt in range(3):
                 if CURRENT_DUMP["cancel_requested"]:
@@ -553,7 +708,7 @@ async def run_database_dump_worker(client: Client):
                     await asyncio.sleep(e.value + 1)
                 except Exception as e:
                     logger.error(f"Error dumping file {file_name}: {e}")
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(0.5)
                     break
 
             if not sent and not CURRENT_DUMP["cancel_requested"]:
@@ -562,19 +717,19 @@ async def run_database_dump_worker(client: Client):
             # Update live UI
             await update_live_status()
 
-            # Anti-flood delay between media messages
-            await asyncio.sleep(1.8)
+            # Fast delay (0.6s) between uploads for high speed + telegram safety
+            await asyncio.sleep(0.6)
 
         return True
 
     try:
-        # 1. Primary DB collection dump
-        primary_cursor = Media.find({})
+        # 1. Primary DB collection dump sorted Alphabetically by file_name
+        primary_cursor = Media.find({}).sort("file_name", 1)
         completed_primary = await dump_cursor(primary_cursor)
 
         # 2. Secondary DB collection dump (if MULTIPLE_DB enabled)
         if completed_primary and MULTIPLE_DB and not CURRENT_DUMP["cancel_requested"]:
-            secondary_cursor = Media2.find({})
+            secondary_cursor = Media2.find({}).sort("file_name", 1)
             await dump_cursor(secondary_cursor)
 
     except Exception as e:
@@ -615,7 +770,7 @@ async def run_database_dump_worker(client: Client):
         # Full Completion Celebratory Message
         complete_text = (
             "🎉 <b><u>Database Dump Completed Successfully!</u></b>\n\n"
-            "All stored movies and files from MongoDB have been dumped to your channel.\n\n"
+            "All stored movies and files from MongoDB have been dumped to your channel in alphabetical sequence.\n\n"
             f"📢 <b>Target Channel:</b> <code>{target_channel_title}</code> (<code>{target_channel_id}</code>)\n"
             f"📂 <b>Total Files in DB:</b> <code>{total:,}</code>\n"
             f"✅ <b>Successfully Dumped:</b> <code>{dumped:,}</code>\n"
@@ -653,7 +808,7 @@ async def run_database_dump_worker(client: Client):
 
 
 # =========================================================================
-# Step 3: Refresh Status & Stop Dump Handlers
+# Step 4: Refresh Status & Stop Dump Handlers
 # =========================================================================
 
 @Client.on_callback_query(filters.regex(r"^dump_refresh_status$"))
