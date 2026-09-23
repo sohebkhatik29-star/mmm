@@ -45,12 +45,15 @@ CURRENT_DUMP = {
 }
 
 
-def is_admin(user_id: int) -> bool:
+async def is_admin(user_id: int) -> bool:
     try:
         uid = int(user_id)
         if uid in ADMINS or str(uid) in [str(a) for a in ADMINS]:
             return True
         if uid in INITIAL_ADMINS or str(uid) in [str(a) for a in INITIAL_ADMINS]:
+            return True
+        custom = await db.get_custom_admin(uid)
+        if custom:
             return True
         return False
     except Exception:
@@ -122,19 +125,21 @@ async def get_total_db_files_count() -> int:
 
 @Client.on_message(filters.command(["dump", "dump_settings", "dumpfiles"]) & filters.private)
 async def dump_settings_cmd(client: Client, message: Message):
-    if not is_admin(message.from_user.id):
+    if not (await is_admin(message.from_user.id)):
         return await message.reply_text("⛔️ <b>Access Denied:</b> This command is restricted to Bot Administrators only.")
     
     ADMIN_DUMP_STATE.pop(message.from_user.id, None)
+    await db.clear_admin_dump_state(message.from_user.id)
     await show_dump_panel(client, message)
 
 
 @Client.on_callback_query(filters.regex(r"^dump_settings_panel$"))
 async def dump_settings_panel_cb(client: Client, query: CallbackQuery):
-    if not is_admin(query.from_user.id):
+    if not (await is_admin(query.from_user.id)):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
     
     ADMIN_DUMP_STATE.pop(query.from_user.id, None)
+    await db.clear_admin_dump_state(query.from_user.id)
     await show_dump_panel(client, query.message)
     await query.answer()
 
@@ -208,16 +213,18 @@ async def show_dump_panel(client: Client, message: Message):
 
 @Client.on_callback_query(filters.regex(r"^dump_start_prompt$"))
 async def dump_start_prompt_cb(client: Client, query: CallbackQuery):
-    if not is_admin(query.from_user.id):
+    if not (await is_admin(query.from_user.id)):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
     
     if CURRENT_DUMP["is_running"]:
         return await query.answer("⚠️ A dump process is already running!", show_alert=True)
     
-    ADMIN_DUMP_STATE[query.from_user.id] = {
+    state_payload = {
         "action": "await_dump_channel",
         "prompt_msg_id": query.message.id
     }
+    ADMIN_DUMP_STATE[query.from_user.id] = state_payload
+    await db.set_admin_dump_state(query.from_user.id, state_payload)
     
     text = (
         "📤 <b><u>Target Channel Setup for Dump</u></b>\n\n"
@@ -241,10 +248,11 @@ async def dump_start_prompt_cb(client: Client, query: CallbackQuery):
 
 @Client.on_callback_query(filters.regex(r"^dump_caption_menu$"))
 async def dump_caption_menu_cb(client: Client, query: CallbackQuery):
-    if not is_admin(query.from_user.id):
+    if not (await is_admin(query.from_user.id)):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
     
     ADMIN_DUMP_STATE.pop(query.from_user.id, None)
+    await db.clear_admin_dump_state(query.from_user.id)
     custom_caption = await db.get_dump_caption()
     
     if custom_caption:
@@ -288,13 +296,15 @@ async def dump_caption_menu_cb(client: Client, query: CallbackQuery):
 
 @Client.on_callback_query(filters.regex(r"^dump_caption_set$"))
 async def dump_caption_set_cb(client: Client, query: CallbackQuery):
-    if not is_admin(query.from_user.id):
+    if not (await is_admin(query.from_user.id)):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
     
-    ADMIN_DUMP_STATE[query.from_user.id] = {
+    state_payload = {
         "action": "await_dump_caption",
         "prompt_msg_id": query.message.id
     }
+    ADMIN_DUMP_STATE[query.from_user.id] = state_payload
+    await db.set_admin_dump_state(query.from_user.id, state_payload)
     
     text = (
         "📝 <b><u>Set Custom Dump File Caption</u></b>\n\n"
@@ -314,13 +324,14 @@ async def dump_caption_set_cb(client: Client, query: CallbackQuery):
 
 @Client.on_callback_query(filters.regex(r"^dump_caption_reset$"))
 async def dump_caption_reset_cb(client: Client, query: CallbackQuery):
-    if not is_admin(query.from_user.id):
+    if not (await is_admin(query.from_user.id)):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
     
     await db.delete_dump_caption()
     await query.answer("✅ Dump caption reset to default!", show_alert=True)
     
     ADMIN_DUMP_STATE.pop(query.from_user.id, None)
+    await db.clear_admin_dump_state(query.from_user.id)
     text = (
         "📝 <b><u>Dump File Caption Settings</u></b>\n\n"
         "⚙️ <b>Status:</b> Reset to <b>DEFAULT CAPTION</b>\n\n"
@@ -334,17 +345,26 @@ async def dump_caption_reset_cb(client: Client, query: CallbackQuery):
 
 
 # =========================================================================
-# Unified Input Handler for Dump Actions (Group 3)
+# Unified Input Handler for Dump Actions (Group -6 highest priority)
 # =========================================================================
 
-@Client.on_message(filters.private & ~filters.bot & filters.incoming, group=-1)
+@Client.on_message(filters.private & ~filters.bot, group=-6)
 async def handle_dump_admin_inputs(client: Client, message: Message):
-    user_id = message.from_user.id
-    if not is_admin(user_id):
+    user_id = message.from_user.id if message.from_user else None
+    if not user_id:
         return
-    
+
+    # Check if this admin is in dump state
     state_info = ADMIN_DUMP_STATE.get(user_id)
     if not state_info:
+        state_info = await db.get_admin_dump_state(user_id)
+    
+    if not state_info:
+        return
+
+    if not (await is_admin(user_id)):
+        ADMIN_DUMP_STATE.pop(user_id, None)
+        await db.clear_admin_dump_state(user_id)
         return
 
     message.stop_propagation()
@@ -367,6 +387,7 @@ async def handle_dump_admin_inputs(client: Client, message: Message):
     # Cancel command check
     if message.text and message.text.strip().lower() in ["/cancel", "cancel"]:
         ADMIN_DUMP_STATE.pop(user_id, None)
+        await db.clear_admin_dump_state(user_id)
         await cleanup_chat()
         text = "🚫 <b>Dump operation cancelled.</b>"
         buttons = [[InlineKeyboardButton("« Back to Dump Menu", callback_data="dump_settings_panel")]]
@@ -381,20 +402,21 @@ async def handle_dump_admin_inputs(client: Client, message: Message):
     # State 1: Awaiting Custom Dump Caption
     # -----------------------------------------------------------------
     if action == "await_dump_caption":
-        if not message.text:
+        raw_caption = message.text.html if (message.text and hasattr(message.text, 'html')) else (message.text or message.caption or "")
+        if not raw_caption:
             return await message.reply_text(
                 "❌ <b>Invalid Input!</b>\n\nPlease send text for the caption.\nType /cancel to cancel."
             )
 
-        new_caption = message.text.html if hasattr(message.text, 'html') else message.text
         try:
-            await db.set_dump_caption(new_caption)
+            await db.set_dump_caption(raw_caption)
             ADMIN_DUMP_STATE.pop(user_id, None)
+            await db.clear_admin_dump_state(user_id)
             await cleanup_chat()
 
             success_text = (
                 "✅ <b><u>Dump File Caption Saved Successfully!</u></b>\n\n"
-                f"<b>Saved Preview:</b>\n<blockquote>{new_caption}</blockquote>\n\n"
+                f"<b>Saved Preview:</b>\n<blockquote>{raw_caption}</blockquote>\n\n"
                 "Ab jab bhi aap dump chalu karenge, files isi custom caption ke sath channel me upload hongi."
             )
             buttons = [
@@ -509,6 +531,7 @@ async def handle_dump_admin_inputs(client: Client, message: Message):
             return await safe_edit_or_replace(client, status_msg, text, reply_markup=InlineKeyboardMarkup(buttons))
 
         ADMIN_DUMP_STATE.pop(user_id, None)
+        await db.clear_admin_dump_state(user_id)
         total_files = await get_total_db_files_count()
 
         confirm_text = (
@@ -534,7 +557,7 @@ async def handle_dump_admin_inputs(client: Client, message: Message):
 
 @Client.on_callback_query(filters.regex(r"^dump_confirm_start#"))
 async def dump_confirm_start_cb(client: Client, query: CallbackQuery):
-    if not is_admin(query.from_user.id):
+    if not (await is_admin(query.from_user.id)):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
     
     if CURRENT_DUMP["is_running"]:
@@ -815,7 +838,7 @@ async def run_database_dump_worker(client: Client):
 
 @Client.on_callback_query(filters.regex(r"^dump_refresh_status$"))
 async def dump_refresh_status_cb(client: Client, query: CallbackQuery):
-    if not is_admin(query.from_user.id):
+    if not (await is_admin(query.from_user.id)):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
     
     await show_dump_panel(client, query.message)
@@ -824,7 +847,7 @@ async def dump_refresh_status_cb(client: Client, query: CallbackQuery):
 
 @Client.on_callback_query(filters.regex(r"^dump_stop_confirm$"))
 async def dump_stop_confirm_cb(client: Client, query: CallbackQuery):
-    if not is_admin(query.from_user.id):
+    if not (await is_admin(query.from_user.id)):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
     
     if not CURRENT_DUMP["is_running"]:
@@ -847,7 +870,7 @@ async def dump_stop_confirm_cb(client: Client, query: CallbackQuery):
 
 @Client.on_callback_query(filters.regex(r"^dump_stop_execute$"))
 async def dump_stop_execute_cb(client: Client, query: CallbackQuery):
-    if not is_admin(query.from_user.id):
+    if not (await is_admin(query.from_user.id)):
         return await query.answer("⛔️ Access Denied!", show_alert=True)
     
     if not CURRENT_DUMP["is_running"]:
@@ -859,7 +882,7 @@ async def dump_stop_execute_cb(client: Client, query: CallbackQuery):
 
 @Client.on_message(filters.command(["stop_dump", "stopdump"]) & filters.private)
 async def stop_dump_cmd(client: Client, message: Message):
-    if not is_admin(message.from_user.id):
+    if not (await is_admin(message.from_user.id)):
         return await message.reply_text("⛔️ <b>Access Denied:</b> Administrators only.")
     
     if not CURRENT_DUMP["is_running"]:

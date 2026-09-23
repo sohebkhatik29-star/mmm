@@ -60,13 +60,28 @@ async def index_files(bot, query):
     await index_files_to_db(int(lst_msg_id), chat, msg, bot, media_filter=mode)
 
 
-@Client.on_message((filters.forwarded | (filters.regex(r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$")) & filters.text ) & filters.private & filters.incoming)
+@Client.on_message((filters.forwarded | (filters.regex(r"^(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$") & filters.text)) & filters.private & filters.incoming)
 async def send_for_index(bot, message):
+    user_id = message.from_user.id if message.from_user else None
+    if user_id:
+        try:
+            from plugins.dump_manager import ADMIN_DUMP_STATE
+            if user_id in ADMIN_DUMP_STATE or (await db.get_admin_dump_state(user_id)):
+                return
+        except Exception:
+            pass
+        try:
+            from plugins.admin_fsub import ADMIN_FSUB_STATE
+            if user_id in ADMIN_FSUB_STATE:
+                return
+        except Exception:
+            pass
+
     if message.text:
-        regex = re.compile(r"(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$")
+        regex = re.compile(r"^(https://)?(t\.me/|telegram\.me/|telegram\.dog/)(c/)?(\d+|[a-zA-Z_0-9]+)/(\d+)$")
         match = regex.match(message.text)
         if not match:
-            return await message.reply('Invalid link')
+            return
         chat_id = match.group(4)
         last_msg_id = int(match.group(5))
         if chat_id.isnumeric():
