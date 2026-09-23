@@ -751,6 +751,17 @@ class Database:
     async def clear_admin_dump_state(self, user_id: int):
         await self.misc.delete_one({'_id': f"dump_state_{int(user_id)}"})
 
+    async def get_dump_sort_mode(self):
+        doc = await self.misc.find_one({'_id': 'dump_sort_mode'})
+        return doc.get('mode', 'latest') if doc else 'latest'
+
+    async def set_dump_sort_mode(self, mode: str):
+        await self.misc.update_one(
+            {'_id': 'dump_sort_mode'},
+            {'$set': {'mode': mode, 'updated_at': datetime.datetime.utcnow()}},
+            upsert=True
+        )
+
     async def get_dump_caption(self):
         doc = await self.misc.find_one({'_id': 'dump_custom_caption'})
         return doc.get('caption') if doc else None

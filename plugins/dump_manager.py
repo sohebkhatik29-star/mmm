@@ -145,6 +145,9 @@ async def show_dump_panel(client: Client, message: Message):
     total_db_files = await get_total_db_files_count()
     custom_caption = await db.get_dump_caption()
     caption_status = "Custom" if custom_caption else "Default"
+    sort_mode = await db.get_dump_sort_mode()
+    sort_label = "🔤 Name Wise (A to Z)" if sort_mode == "name" else "🆕 Latest Added First (New to Old)"
+    sort_btn_text = f"🔀 Sort: {'🔤 A-Z' if sort_mode == 'name' else '🆕 Latest First'}"
     
     if CURRENT_DUMP["is_running"]:
         elapsed = time.time() - CURRENT_DUMP["start_time"]
@@ -164,7 +167,7 @@ async def show_dump_panel(client: Client, message: Message):
             f"⏳ <b>Remaining:</b> <code>{max(0, total - dumped - failed):,}</code>\n"
             f"📈 <b>Progress:</b> <code>{pct:.1f}%</code> [{pbar}]\n"
             f"⏱ <b>Elapsed Time:</b> <code>{format_duration(elapsed)}</code>\n\n"
-            "⚡ <i>Files are sorted by Name (A-Z) so all qualities of the same movie appear together!</i>"
+            f"⚡ <b>Sort Order:</b> <code>{sort_label}</code>"
         )
         buttons = [
             [
@@ -180,28 +183,43 @@ async def show_dump_panel(client: Client, message: Message):
             "📦 <b><u>Database Channel Dump Management</u></b>\n\n"
             "Welcome to the Database Export & Channel Dump Manager.\n\n"
             f"📂 <b>Total Files in MongoDB:</b> <code>{total_db_files:,} files</code>\n"
+            f"🔀 <b>Current Sort Order:</b> <code>{sort_label}</code>\n"
             f"📝 <b>Dump Caption:</b> <code>{caption_status}</code>\n"
             "⚪ <b>Current Status:</b> <code>Idle (No active dump)</code>\n\n"
-            "💡 <b>Features:</b>\n"
-            "• <b>Alphabetical Sort (A-Z):</b> Same movie ki saari qualities (480p, 720p, 1080p) ek sath sequence me aayengi.\n"
-            "• <b>Fast Speed:</b> High speed uploads with automatic flood protection.\n"
-            "• <b>Custom Caption:</b> Aap dump hone wali files ke liye apna caption set kar sakte hain."
+            "💡 <b>Sort Options:</b>\n"
+            "• <b>🆕 Latest Added First (Default):</b> Jo movies abhi nayi add hui hain (`Mardaani 3`, `Stree 2` etc.) wo pehle aayengi.\n"
+            "• <b>🔤 Name Wise (A to Z):</b> Movie ki saari qualities (480p, 720p, 1080p) ek sath line se aayengi."
         )
         buttons = [
             [
                 InlineKeyboardButton("🚀 Start Dump", callback_data="dump_start_prompt"),
-                InlineKeyboardButton("📝 ꜱᴇᴛ ᴅᴜᴍᴘ ᴄᴀᴘᴛɪᴏɴ", callback_data="dump_caption_menu")
+                InlineKeyboardButton(sort_btn_text, callback_data="dump_toggle_sort")
             ],
             [
-                InlineKeyboardButton("📊 Dump Status", callback_data="dump_refresh_status"),
-                InlineKeyboardButton("« Back to Admin Menu", callback_data="admin_settings")
+                InlineKeyboardButton("📝 ꜱᴇᴛ ᴅᴜᴍᴘ ᴄᴀᴘᴛɪᴏɴ", callback_data="dump_caption_menu"),
+                InlineKeyboardButton("📊 Dump Status", callback_data="dump_refresh_status")
             ],
             [
+                InlineKeyboardButton("« Back to Admin Menu", callback_data="admin_settings"),
                 InlineKeyboardButton("⇋ Home ⇋", callback_data="start")
             ]
         ]
         
     await safe_edit_or_replace(client, message, text, reply_markup=InlineKeyboardMarkup(buttons))
+
+
+@Client.on_callback_query(filters.regex(r"^dump_toggle_sort$"))
+async def dump_toggle_sort_cb(client: Client, query: CallbackQuery):
+    if not is_admin(query.from_user.id):
+        return await query.answer("⛔️ Access Denied!", show_alert=True)
+    
+    current_mode = await db.get_dump_sort_mode()
+    new_mode = "name" if current_mode == "latest" else "latest"
+    await db.set_dump_sort_mode(new_mode)
+    
+    label = "🔤 Name Wise (A to Z)" if new_mode == "name" else "🆕 Latest Added First (New to Old)"
+    await query.answer(f"Sort Order: {label}", show_alert=True)
+    await show_dump_panel(client, query.message)
 
 
 # =========================================================================
@@ -553,13 +571,15 @@ async def handle_dump_admin_inputs(client: Client, message: Message):
         ADMIN_DUMP_STATE.pop(user_id, None)
         await db.clear_admin_dump_state(user_id)
         total_files = await get_total_db_files_count()
+        sort_mode = await db.get_dump_sort_mode()
+        sort_label = "🔤 Name Wise (A to Z)" if sort_mode == "name" else "🆕 Latest Added First (New to Old)"
 
         confirm_text = (
             "✅ <b><u>Channel Verified Successfully!</u></b>\n\n"
             f"📢 <b>Target Channel:</b> <code>{target_chat.title}</code>\n"
             f"🆔 <b>Channel ID:</b> <code>{target_chat.id}</code>\n"
             f"📂 <b>Total Files to Dump:</b> <code>{total_files:,} files</code>\n"
-            "🔤 <b>Sort Order:</b> <code>Name Wise (A to Z)</code> (Same movie all qualities will come together!)\n\n"
+            f"🔀 <b>Sort Order:</b> <code>{sort_label}</code>\n\n"
             "Are you ready to start dumping all stored files from the database into this channel?"
         )
         buttons = [
@@ -786,15 +806,23 @@ async def run_database_dump_worker(client: Client):
 
         return True
 
+    sort_mode = await db.get_dump_sort_mode()
+
     async def get_safely_sorted_cursor(coll):
         projection = {"_id": 1, "file_id": 1, "file_name": 1, "file_size": 1, "caption": 1, "cover": 1}
-        # 1. Create index on file_name in background so sorting requires zero memory and runs at lightning speed
+        
+        # 1. Latest Added First (Natural reverse order - most recent movies first)
+        if sort_mode == "latest":
+            return coll.find({}, projection).sort("$natural", -1)
+
+        # 2. Name Wise (A to Z)
+        # Create index on file_name in background so sorting requires zero memory and runs at lightning speed
         try:
             await coll.create_index([("file_name", 1)], background=True)
         except Exception as ie:
             logger.warning(f"Index creation note: {ie}")
 
-        # 2. Query with allow_disk_use=True to prevent 32MB memory limit error
+        # Query with allow_disk_use=True to prevent 32MB memory limit error
         try:
             cur = coll.find({}, projection, allow_disk_use=True).sort("file_name", 1)
             return cur
