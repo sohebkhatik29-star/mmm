@@ -18,8 +18,8 @@ from pyrogram.errors import (
     MessageNotModified,
     RPCError
 )
-from info import ADMINS, INITIAL_ADMINS, MULTIPLE_DB, CUSTOM_FILE_CAPTION
-from database.ia_filterdb import Media, Media2
+from info import ADMINS, INITIAL_ADMINS, MULTIPLE_DB, CUSTOM_FILE_CAPTION, COLLECTION_NAME
+from database.ia_filterdb import Media, Media2, db as media_db, db2 as media_db2
 from database.users_chats_db import db
 from utils import get_size, clean_filename
 
@@ -469,7 +469,27 @@ async def handle_dump_admin_inputs(client: Client, message: Message):
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="dump_settings_panel")]])
             )
 
-        status_msg = await message.reply_text("🔍 <b>Verifying Channel & Admin Permissions...</b> Please wait...")
+        # Delete user's forwarded message or text input to keep chat clean
+        try:
+            await message.delete()
+        except Exception:
+            pass
+
+        # Use and update prompt message if available to avoid stacking messages
+        status_msg = None
+        if prompt_msg_id:
+            try:
+                status_msg = await client.edit_message_text(
+                    chat_id=message.chat.id,
+                    message_id=prompt_msg_id,
+                    text="🔍 <b>Verifying Channel & Admin Permissions...</b> Please wait...",
+                    parse_mode=enums.ParseMode.HTML
+                )
+            except Exception:
+                status_msg = None
+
+        if not status_msg:
+            status_msg = await message.reply_text("🔍 <b>Verifying Channel & Admin Permissions...</b> Please wait...")
 
         try:
             target_chat = await client.get_chat(target_chat_identifier)
@@ -568,6 +588,7 @@ async def dump_confirm_start_cb(client: Client, query: CallbackQuery):
     target_channel_title = parts[2] if len(parts) > 2 else "Channel"
     
     total_files = await get_total_db_files_count()
+    logger.info(f"Total files in DB: {total_files}")
     if total_files == 0:
         return await query.answer("❌ No files found in database to dump!", show_alert=True)
 
@@ -625,7 +646,7 @@ async def run_database_dump_worker(client: Client):
     
     async def update_live_status():
         nonlocal last_ui_update
-        if time.time() - last_ui_update < 5:
+        if time.time() - last_ui_update < 4:
             return
         last_ui_update = time.time()
         dumped = CURRENT_DUMP["dumped_files"]
@@ -637,7 +658,7 @@ async def run_database_dump_worker(client: Client):
         
         # Calculate ETA
         processed = dumped + failed
-        if processed > 0:
+        if processed > 0 and elapsed > 0:
             speed = processed / elapsed
             eta_seconds = remaining / speed if speed > 0 else 0
             eta_str = format_duration(eta_seconds)
@@ -654,7 +675,7 @@ async def run_database_dump_worker(client: Client):
             f"📈 <b>Progress:</b> <code>{pct:.1f}%</code> [{pbar}]\n"
             f"⏱ <b>Elapsed Time:</b> <code>{format_duration(elapsed)}</code>\n"
             f"⌛ <b>Estimated Time Left (ETA):</b> <code>{eta_str}</code>\n\n"
-            "⚡ <i>Uploading files sorted by Name (A-Z) with fast speed!</i>"
+            "⚡ <i>Uploading files sorted by Name (A-Z) with fast 3x speed!</i>"
         )
         buttons = [
             [
@@ -678,14 +699,30 @@ async def run_database_dump_worker(client: Client):
             if CURRENT_DUMP["cancel_requested"]:
                 return False
             
-            file_id = getattr(doc, "file_id", None)
+            # Extract fields from raw MongoDB dictionary or object
+            if isinstance(doc, dict):
+                file_id = doc.get("file_id") or doc.get("_id")
+                raw_name = doc.get("file_name") or "File"
+                raw_size = doc.get("file_size", 0)
+                raw_caption = doc.get("caption")
+                cover = doc.get("cover")
+            else:
+                file_id = getattr(doc, "file_id", None) or getattr(doc, "id", None)
+                raw_name = getattr(doc, "file_name", "File")
+                raw_size = getattr(doc, "file_size", 0)
+                raw_caption = getattr(doc, "caption", None)
+                cover = getattr(doc, "cover", None)
+                
             if not file_id:
                 CURRENT_DUMP["failed_files"] += 1
                 continue
                 
-            raw_caption = getattr(doc, "caption", None)
-            file_name = clean_filename(getattr(doc, "file_name", "File"))
-            file_size = get_size(getattr(doc, "file_size", 0))
+            file_id_str = str(file_id)
+            file_name = clean_filename(str(raw_name))
+            try:
+                file_size = get_size(int(raw_size))
+            except Exception:
+                file_size = "N/A"
             
             # Format Caption: Custom Dump Caption > Custom Bot Caption > Raw/Default
             if custom_dump_caption:
@@ -711,8 +748,6 @@ async def run_database_dump_worker(client: Client):
             else:
                 caption = f"📁 <b>{file_name}</b> [{file_size}]"
 
-            cover = getattr(doc, "cover", None)
-
             # Fast sending with instant FloodWait retry
             sent = False
             for attempt in range(3):
@@ -721,7 +756,7 @@ async def run_database_dump_worker(client: Client):
                 try:
                     await client.send_cached_media(
                         chat_id=target_channel_id,
-                        file_id=file_id,
+                        file_id=file_id_str,
                         caption=caption,
                         cover=cover
                     )
@@ -733,7 +768,11 @@ async def run_database_dump_worker(client: Client):
                     await asyncio.sleep(e.value + 1)
                 except Exception as e:
                     logger.error(f"Error dumping file {file_name}: {e}")
-                    await asyncio.sleep(0.5)
+                    # If failed with cover on first attempt, retry without cover
+                    if cover and attempt == 0:
+                        cover = None
+                        continue
+                    await asyncio.sleep(0.3)
                     break
 
             if not sent and not CURRENT_DUMP["cancel_requested"]:
@@ -747,21 +786,31 @@ async def run_database_dump_worker(client: Client):
 
         return True
 
+    worker_error = None
     try:
-        # 1. Primary DB collection dump sorted Alphabetically by file_name
-        primary_cursor = Media.find({}).sort("file_name", 1)
+        # 1. Primary DB collection dump sorted Alphabetically by file_name using raw Motor collection
+        primary_coll = getattr(Media, "collection", None)
+        if primary_coll is None:
+            primary_coll = media_db[COLLECTION_NAME]
+            
+        primary_cursor = primary_coll.find({}).sort("file_name", 1)
         completed_primary = await dump_cursor(primary_cursor)
 
         # 2. Secondary DB collection dump (if MULTIPLE_DB enabled)
         if completed_primary and MULTIPLE_DB and not CURRENT_DUMP["cancel_requested"]:
-            secondary_cursor = Media2.find({}).sort("file_name", 1)
-            await dump_cursor(secondary_cursor)
+            secondary_coll = getattr(Media2, "collection", None)
+            if secondary_coll is None and media_db2 is not None:
+                secondary_coll = media_db2[COLLECTION_NAME]
+            if secondary_coll is not None:
+                secondary_cursor = secondary_coll.find({}).sort("file_name", 1)
+                await dump_cursor(secondary_cursor)
 
     except Exception as e:
         logger.exception(f"Unexpected error in dump worker: {e}")
+        worker_error = str(e)
 
     # =========================================================================
-    # Post Dump Handling: Cancellation or Full Completion
+    # Post Dump Handling: Cancellation, Error or Full Completion
     # =========================================================================
     elapsed_total = time.time() - CURRENT_DUMP["start_time"]
     dumped = CURRENT_DUMP["dumped_files"]
@@ -786,6 +835,28 @@ async def run_database_dump_worker(client: Client):
                 chat_id=status_chat_id,
                 message_id=status_msg_id,
                 text=stop_text,
+                reply_markup=InlineKeyboardMarkup(buttons),
+                parse_mode=enums.ParseMode.HTML
+            )
+        except Exception:
+            pass
+    elif worker_error and dumped == 0:
+        error_text = (
+            "⚠️ <b><u>Database Dump Error!</u></b>\n\n"
+            f"An error occurred while reading files from database:\n"
+            f"<code>{worker_error}</code>\n\n"
+            f"📢 <b>Target Channel:</b> <code>{target_channel_title}</code>\n"
+            f"⏱ <b>Elapsed:</b> <code>{format_duration(elapsed_total)}</code>"
+        )
+        buttons = [
+            [InlineKeyboardButton("🔄 Try Again", callback_data="dump_start_prompt")],
+            [InlineKeyboardButton("📦 Dump Menu", callback_data="dump_settings_panel")]
+        ]
+        try:
+            await client.edit_message_text(
+                chat_id=status_chat_id,
+                message_id=status_msg_id,
+                text=error_text,
                 reply_markup=InlineKeyboardMarkup(buttons),
                 parse_mode=enums.ParseMode.HTML
             )
