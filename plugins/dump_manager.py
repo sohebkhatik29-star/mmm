@@ -786,6 +786,32 @@ async def run_database_dump_worker(client: Client):
 
         return True
 
+    async def get_safely_sorted_cursor(coll):
+        projection = {"_id": 1, "file_id": 1, "file_name": 1, "file_size": 1, "caption": 1, "cover": 1}
+        # 1. Create index on file_name in background so sorting requires zero memory and runs at lightning speed
+        try:
+            await coll.create_index([("file_name", 1)], background=True)
+        except Exception as ie:
+            logger.warning(f"Index creation note: {ie}")
+
+        # 2. Query with allow_disk_use=True to prevent 32MB memory limit error
+        try:
+            cur = coll.find({}, projection, allow_disk_use=True).sort("file_name", 1)
+            return cur
+        except TypeError:
+            pass
+        except Exception as e:
+            logger.warning(f"find with allow_disk_use param failed: {e}")
+
+        try:
+            cur = coll.find({}, projection).sort("file_name", 1)
+            if hasattr(cur, "allow_disk_use"):
+                cur.allow_disk_use(True)
+            return cur
+        except Exception as e:
+            logger.warning(f"allow_disk_use method failed: {e}")
+            return coll.find({}, projection)
+
     worker_error = None
     try:
         # 1. Primary DB collection dump sorted Alphabetically by file_name using raw Motor collection
@@ -793,7 +819,7 @@ async def run_database_dump_worker(client: Client):
         if primary_coll is None:
             primary_coll = media_db[COLLECTION_NAME]
             
-        primary_cursor = primary_coll.find({}).sort("file_name", 1)
+        primary_cursor = await get_safely_sorted_cursor(primary_coll)
         completed_primary = await dump_cursor(primary_cursor)
 
         # 2. Secondary DB collection dump (if MULTIPLE_DB enabled)
@@ -802,7 +828,7 @@ async def run_database_dump_worker(client: Client):
             if secondary_coll is None and media_db2 is not None:
                 secondary_coll = media_db2[COLLECTION_NAME]
             if secondary_coll is not None:
-                secondary_cursor = secondary_coll.find({}).sort("file_name", 1)
+                secondary_cursor = await get_safely_sorted_cursor(secondary_coll)
                 await dump_cursor(secondary_cursor)
 
     except Exception as e:
