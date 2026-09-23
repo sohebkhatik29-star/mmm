@@ -337,7 +337,7 @@ async def dump_caption_reset_cb(client: Client, query: CallbackQuery):
 # Unified Input Handler for Dump Actions (Group 3)
 # =========================================================================
 
-@Client.on_message(filters.private & ~filters.bot & filters.incoming, group=3)
+@Client.on_message(filters.private & ~filters.bot & filters.incoming, group=-1)
 async def handle_dump_admin_inputs(client: Client, message: Message):
     user_id = message.from_user.id
     if not is_admin(user_id):
@@ -346,6 +346,8 @@ async def handle_dump_admin_inputs(client: Client, message: Message):
     state_info = ADMIN_DUMP_STATE.get(user_id)
     if not state_info:
         return
+
+    message.stop_propagation()
 
     action = state_info.get("action")
     prompt_msg_id = state_info.get("prompt_msg_id")

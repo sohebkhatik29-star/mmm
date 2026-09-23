@@ -87,6 +87,18 @@ async def pm_text(bot, message):
             return
     except Exception:
         pass
+    try:
+        from plugins.dump_manager import ADMIN_DUMP_STATE
+        if user_id in ADMIN_DUMP_STATE:
+            return
+    except Exception:
+        pass
+    try:
+        from plugins.admin_fsub import ADMIN_FSUB_STATE
+        if user_id in ADMIN_FSUB_STATE:
+            return
+    except Exception:
+        pass
     if EMOJI_MODE:
         try:
             await message.react(emoji=random.choice(REACTIONS), big=True)
